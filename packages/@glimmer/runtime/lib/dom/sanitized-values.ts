@@ -127,7 +127,9 @@ export function sanitizeAttributeValue(
   attribute: string,
   value: unknown
 ): unknown {
-  if (value === null || value === undefined) {
+  // `false` means "no attribute", like `null`/`undefined`, so pass it through
+  // instead of stringifying it to "false". See https://github.com/emberjs/ember.js/issues/21344.
+  if (value === null || value === undefined || value === false) {
     return value;
   }
 

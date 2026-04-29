@@ -637,6 +637,216 @@ export class AttributesTests extends RenderTest {
     this.rerender({ foo: 'http://foo.bar/derp' });
     this.assert.strictEqual(this.readDOMAttr('formAction', button), 'http://foo.bar/derp');
   }
+
+  // https://github.com/emberjs/ember.js/issues/21344
+  //
+  // Bare `attr={{false}}` previously dispatched through code paths that
+  // either coerced `false` to the literal string `"false"` (string-valued
+  // IDL attributes like autocomplete, name, popover) or ran it through the
+  // sanitizer's `String()` coercion (URL attributes like href, src). It now
+  // shares the same "remove the attribute" semantics as `{{null}}` and
+  // `{{undefined}}` across every dispatch path.
+
+  @test
+  'bare {{false}} removes string-valued IDL property attributes (autocomplete)'() {
+    this.render('<input autocomplete={{this.value}} />', { value: false });
+    this.assertHTML('<input />');
+    this.assertStableRerender();
+
+    this.rerender({ value: 'on' });
+    this.assertHTML('<input autocomplete="on" />');
+    this.assertStableNodes();
+
+    this.rerender({ value: false });
+    this.assertHTML('<input />');
+    this.assertStableNodes();
+
+    this.rerender({ value: null });
+    this.assertHTML('<input />');
+    this.assertStableNodes();
+  }
+
+  @test
+  'bare {{false}} removes string-valued IDL property attributes (name)'() {
+    this.render('<input name={{this.value}} />', { value: false });
+    this.assertHTML('<input />');
+    this.assertStableRerender();
+
+    this.rerender({ value: 'first' });
+    this.assertHTML('<input name="first" />');
+    this.assertStableNodes();
+
+    this.rerender({ value: false });
+    this.assertHTML('<input />');
+    this.assertStableNodes();
+  }
+
+  @test
+  'bare {{false}} removes the popover property attribute'() {
+    this.render('<div popover={{this.value}}></div>', { value: false });
+    this.assertHTML('<div></div>');
+    this.assertStableRerender();
+
+    this.rerender({ value: 'auto' });
+    this.assertHTML('<div popover="auto"></div>');
+    this.assertStableNodes();
+
+    this.rerender({ value: false });
+    this.assertHTML('<div></div>');
+    this.assertStableNodes();
+  }
+
+  @test
+  'bare {{false}} clears <input value> rather than setting it to "false"'() {
+    this.render('<input value={{this.value}} />', { value: false });
+    this.assert.strictEqual(this.readDOMAttr('value'), '');
+    this.assertStableRerender();
+
+    this.rerender({ value: 'hello' });
+    this.assert.strictEqual(this.readDOMAttr('value'), 'hello');
+    this.assertStableNodes();
+
+    this.rerender({ value: false });
+    this.assert.strictEqual(this.readDOMAttr('value'), '');
+    this.assertStableNodes();
+  }
+
+  @test
+  'bare {{false}} removes sanitized URL attributes (a[href])'() {
+    this.render('<a href={{this.value}}></a>', { value: false });
+    this.assertHTML('<a></a>');
+    this.assertStableRerender();
+
+    this.rerender({ value: 'http://example.com' });
+    this.assertHTML('<a href="http://example.com"></a>');
+    this.assertStableNodes();
+
+    this.rerender({ value: false });
+    this.assertHTML('<a></a>');
+    this.assertStableNodes();
+  }
+
+  @test
+  'bare {{false}} removes sanitized URL attributes (img[src])'() {
+    this.render('<img src={{this.value}} />', { value: false });
+    this.assertHTML('<img />');
+    this.assertStableRerender();
+
+    this.rerender({ value: 'http://example.com/x.png' });
+    this.assertHTML('<img src="http://example.com/x.png" />');
+    this.assertStableNodes();
+
+    this.rerender({ value: false });
+    this.assertHTML('<img />');
+    this.assertStableNodes();
+  }
+
+  @test
+  'bare {{false}} continues to clear boolean attributes (hidden)'() {
+    this.render('<div hidden={{this.value}}></div>', { value: true });
+    this.assertHTML('<div hidden></div>');
+    this.assertStableRerender();
+
+    this.rerender({ value: false });
+    this.assertHTML('<div></div>');
+    this.assertStableNodes();
+
+    this.rerender({ value: true });
+    this.assertHTML('<div hidden></div>');
+    this.assertStableNodes();
+  }
+
+  @test
+  'bare {{false}} on aria-* attributes continues to omit the attribute'() {
+    // aria-* names are not DOM properties (no `aria-hidden` slot on Element),
+    // so they take the SimpleDynamicAttribute path. This already handled
+    // false correctly — the test guards against future regressions.
+    this.render('<div aria-hidden={{this.value}}></div>', { value: false });
+    this.assertHTML('<div></div>');
+    this.assertStableRerender();
+
+    this.rerender({ value: 'true' });
+    this.assertHTML('<div aria-hidden="true"></div>');
+    this.assertStableNodes();
+
+    this.rerender({ value: false });
+    this.assertHTML('<div></div>');
+    this.assertStableNodes();
+  }
+
+  @test
+  'concat {{"{{false}}"}} keeps stringification semantics (existing behavior)'() {
+    // Concat form is intentionally NOT changed — `attr="{{value}}"` always
+    // produces a string. This guards the contract for #21344.
+    this.render('<div data-foo="{{this.value}}"></div>', { value: false });
+    this.assertHTML('<div data-foo="false"></div>');
+    this.assertStableRerender();
+
+    this.rerender({ value: 'bar' });
+    this.assertHTML('<div data-foo="bar"></div>');
+    this.assertStableNodes();
+  }
+
+  @test
+  'bare {{false}} still sets boolean properties to false (spellcheck, draggable, translate)'() {
+    this.render(
+      '<div contenteditable="true" spellcheck={{this.value}}></div><img draggable={{this.value}} /><span translate={{this.value}}></span>',
+      { value: false }
+    );
+    this.assertHTML(
+      '<div contenteditable="true" spellcheck="false"></div><img draggable="false" /><span translate="no"></span>'
+    );
+    this.assertStableRerender();
+
+    this.rerender({ value: true });
+    this.assertHTML(
+      '<div contenteditable="true" spellcheck="true"></div><img draggable="true" /><span translate="yes"></span>'
+    );
+    this.assertStableNodes();
+
+    this.rerender({ value: false });
+    this.assertHTML(
+      '<div contenteditable="true" spellcheck="false"></div><img draggable="false" /><span translate="no"></span>'
+    );
+    this.assertStableNodes();
+  }
+
+  @test
+  'bare {{false}} removes numeric property attributes (tabindex)'() {
+    this.render('<div tabindex={{this.value}}></div>', { value: false });
+    this.assertHTML('<div></div>');
+    this.assertStableRerender();
+
+    this.rerender({ value: 1 });
+    this.assertHTML('<div tabindex="1"></div>');
+    this.assertStableNodes();
+
+    this.rerender({ value: false });
+    this.assertHTML('<div></div>');
+    this.assertStableNodes();
+  }
+
+  @test
+  'bare {{false}} is passed through to custom element properties'() {
+    if (!customElements.get('x-falsy-prop')) {
+      customElements.define(
+        'x-falsy-prop',
+        class extends HTMLElement {
+          foo: unknown = null;
+        }
+      );
+    }
+
+    this.render('<x-falsy-prop foo={{this.value}}></x-falsy-prop>', { value: false });
+    this.assert.strictEqual((this.element.firstChild as unknown as { foo: unknown }).foo, false);
+    this.assertStableRerender();
+
+    this.rerender({ value: 'bar' });
+    this.assert.strictEqual((this.element.firstChild as unknown as { foo: unknown }).foo, 'bar');
+
+    this.rerender({ value: false });
+    this.assert.strictEqual((this.element.firstChild as unknown as { foo: unknown }).foo, false);
+  }
 }
 
 jitSuite(AttributesTests);

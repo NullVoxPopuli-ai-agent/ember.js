@@ -116,7 +116,7 @@ export class DefaultDynamicProperty extends DynamicAttribute {
 
   value: unknown;
   set(dom: TreeBuilder, value: unknown, _env: Environment): void {
-    if (value !== null && value !== undefined) {
+    if (!this.isRemoval(value)) {
       this.value = value;
       dom.__setProperty(this.normalizedName, value);
     }
@@ -126,13 +126,39 @@ export class DefaultDynamicProperty extends DynamicAttribute {
     const { element } = this.attribute;
 
     if (this.value !== value) {
-      (element as unknown as Element)[this.normalizedName as MutableKey<Element>] = this.value =
-        value as never;
+      this.value = value;
+
+      if (value === false && this.isRemoval(value)) {
+        // Assigning `false` to a string-typed property (e.g. `autocomplete`,
+        // `name`, `popover`) would coerce it to the string `"false"`, so only
+        // remove the attribute. See https://github.com/emberjs/ember.js/issues/21344.
+        this.removeAttribute();
+        return;
+      }
+
+      (element as unknown as Element)[this.normalizedName as MutableKey<Element>] = value as never;
 
       if (value === null || value === undefined) {
         this.removeAttribute();
       }
     }
+  }
+
+  /**
+   * `null` and `undefined` always mean "no attribute". `false` means the same,
+   * except for properties that are actually booleans (`disabled`, `spellcheck`,
+   * `draggable`, ...) where it must be assigned so that `spellcheck={{false}}`
+   * turns spellcheck off. Custom elements own their property types, so `false`
+   * is passed through to them unchanged.
+   */
+  private isRemoval(value: unknown): boolean {
+    if (value === null || value === undefined) return true;
+    if (value !== false) return false;
+
+    const { element } = this.attribute;
+    if (element.tagName.includes('-')) return false;
+
+    return typeof (element as unknown as Dict)[this.normalizedName] !== 'boolean';
   }
 
   protected removeAttribute() {
@@ -178,7 +204,9 @@ export class SafeDynamicAttribute extends SimpleDynamicAttribute {
 
 export class InputValueDynamicAttribute extends DefaultDynamicProperty {
   override set(dom: TreeBuilder, value: unknown) {
-    const normalized = normalizeStringValue(value);
+    // `false` clears the value like `null`/`undefined` instead of becoming "false".
+    // See https://github.com/emberjs/ember.js/issues/21344.
+    const normalized = value === false ? '' : normalizeStringValue(value);
     dom.__setProperty('value', normalized);
 
     // GH#19219: Browsers don't reflect `input.value = ''` as a value attribute when
@@ -192,7 +220,7 @@ export class InputValueDynamicAttribute extends DefaultDynamicProperty {
   override update(value: unknown) {
     const input = castToBrowser(this.attribute.element, ['input', 'textarea']);
     const currentValue = input.value;
-    const normalizedValue = normalizeStringValue(value);
+    const normalizedValue = value === false ? '' : normalizeStringValue(value);
     if (currentValue !== normalizedValue) {
       input.value = normalizedValue;
     }

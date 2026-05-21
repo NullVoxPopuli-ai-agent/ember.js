@@ -1,30 +1,17 @@
 import { DEBUG } from '@glimmer/env';
-import type {
-  ConstantTag,
-  DirtyableTag,
-  Tag,
-  TagComputeSymbol,
-  UpdatableTag,
-} from '@glimmer/interfaces';
+import type { Tag } from '@glimmer/interfaces';
 import { scheduleRevalidate } from '@glimmer/global-context';
-import { computed, signal } from 'alien-signals';
+import { signal } from 'alien-signals';
 
 import { debug } from './debug';
 import { unwrap } from './utils';
 
-// A Tag is just a function: call it to get the current revision (and, when
-// called inside an alien-signals subscriber, register a dependency).
-// Everything below is sugar over that.
+// `Tag` is just `() => Revision`. Read it to get the current revision and,
+// inside an alien-signals subscriber, register a dependency.
 
 export type Revision = number;
-export const CONSTANT: Revision = 0;
 export const INITIAL: Revision = 1;
-export const VOLATILE: Revision = NaN;
-
-// Kept as a Symbol export so the type from @glimmer/interfaces still resolves.
-// Internal code does not go through it — it calls the tag directly.
-export const COMPUTE: TagComputeSymbol = Symbol('TAG_COMPUTE') as TagComputeSymbol;
-Reflect.set(globalThis, 'COMPUTE_SYMBOL', COMPUTE);
+const VOLATILE: Revision = NaN;
 
 const $tick = signal<Revision>(INITIAL);
 const advance = (): Revision => {
@@ -36,58 +23,43 @@ export const bump = (): void => {
   advance();
 };
 
-// Private map from a tag's read fn to its underlying writable signal.
-// Only dirtyable tags are registered here.
-const dirtyHandles = new WeakMap<Tag, (v: Revision) => void>();
-// Private map for updatable tags whose subtag can be re-pointed via updateTag.
-const subRefs = new WeakMap<Tag, (sub: Tag | null) => void>();
+// Dirtyable tags: read-only Tag fn paired with a hidden `dirty` writer.
+const dirtyWriters = new WeakMap<Tag, (v: Revision) => void>();
 
-const asTag = (fn: () => Revision): Tag => {
-  const tag = fn as unknown as Tag;
-  // Maintain the [COMPUTE] property shape for the type system.
-  (tag as unknown as Record<symbol, () => Revision>)[COMPUTE] = fn;
-  return tag;
-};
-
-export function createTag(): DirtyableTag {
+export function createTag(): Tag {
   const s = signal<Revision>(INITIAL);
-  const tag = asTag(() => s());
-  dirtyHandles.set(tag, s);
+  const tag: Tag = () => s();
+  dirtyWriters.set(tag, s);
   return tag;
 }
 
-// An "updatable" tag is a dirtyable tag with one additional capability: a
-// subtag pointer that can be re-pointed via updateTag.
+// Updatable tags: a dirtyable that can have its subtag re-pointed via
+// updateTag. Two pieces of bookkeeping survive (each verified by removing
+// it and watching specific tests fail):
 //
-// Two pieces of bookkeeping survive on top of the alien-signals signals,
-// both of them required by ember's contract (verified by removing each and
-// watching specific tests fail):
-//
-// 1. A cycle guard. ember's CP set/get both call updateTag(propertyTag,
-//    depsChain), which sets up `barTag.sub → fooTag` and
-//    `fooTag.sub → barTag` when foo/bar depend on each other. alien-signals
-//    has no cycle handling that maps to ember's ALLOW_CYCLES contract, so
-//    a re-entrance check returns the tag's last-seen revision and advances
-//    the global tick (forcing other caches to revalidate).
-// 2. An adoption "buffer". When updateTag adopts a subtag whose revision is
-//    already higher than the parent's, naive `max(own, sub())` makes the
-//    parent's revision jump. That would fire observers on the parent
-//    without anything they care about having changed (see
-//    `computed - observer interop: observers that do not consume computed
-//    properties still work`). The buffer hides the adoption-time jump
-//    until the subtag is itself dirtied past its adoption value.
+// 1. Cycle re-entrance guard. ember's CP set/get both call
+//    `updateTag(propertyTag, depsChain)`, building reciprocal subtag
+//    pointers between two property tags whose CPs depend on each other.
+//    alien-signals re-entry returns NaN; ember needs a stable last value
+//    plus a tick bump so neighbouring caches revalidate.
+// 2. Adoption "buffer". `updateTag` may adopt a subtag whose revision is
+//    already higher than the parent's; naive `max(own, sub())` makes the
+//    parent jump and fires observers on the parent without anything they
+//    care about having changed.
 const computing = new WeakSet<Tag>();
 interface UpdatableState {
   buffer: Revision | null;
   last: Revision;
+  own: (v: Revision) => void;
+  sub: (s: Tag | null) => void;
 }
-const updatableState = new WeakMap<Tag, UpdatableState>();
+const updatables = new WeakMap<Tag, UpdatableState>();
 
-export function createUpdatableTag(): UpdatableTag {
+export function createUpdatableTag(): Tag {
   const ownSig = signal<Revision>(INITIAL);
   const subSig = signal<Tag | null>(null);
-  const state: UpdatableState = { buffer: null, last: INITIAL };
-  const tag = asTag(() => {
+  const state: UpdatableState = { buffer: null, last: INITIAL, own: ownSig, sub: subSig };
+  const tag: Tag = () => {
     if (computing.has(tag)) {
       advance();
       return state.last;
@@ -95,12 +67,12 @@ export function createUpdatableTag(): UpdatableTag {
     computing.add(tag);
     try {
       const o = ownSig();
-      const sub = subSig();
-      if (sub === null) {
+      const s = subSig();
+      if (s === null) {
         state.last = o;
         return o;
       }
-      const sv = sub();
+      const sv = s();
       const r =
         sv === state.buffer ? Math.max(o, state.last) : ((state.buffer = null), Math.max(o, sv));
       state.last = r;
@@ -108,26 +80,24 @@ export function createUpdatableTag(): UpdatableTag {
     } finally {
       computing.delete(tag);
     }
-  });
-  dirtyHandles.set(tag, ownSig);
-  subRefs.set(tag, subSig);
-  updatableState.set(tag, state);
+  };
+  dirtyWriters.set(tag, ownSig);
+  updatables.set(tag, state);
   return tag;
 }
 
-export function updateTag(tag: UpdatableTag, sub: Tag): void {
-  const ref = subRefs.get(tag);
-  const state = updatableState.get(tag);
-  if (ref === undefined || state === undefined) {
+export function updateTag(tag: Tag, sub: Tag): void {
+  const state = updatables.get(tag);
+  if (state === undefined) {
     if (DEBUG) throw new Error('Attempted to update a tag that was not updatable');
     return;
   }
   if (sub === CONSTANT_TAG) {
     state.buffer = null;
-    ref(null);
+    state.sub(null);
   } else {
     state.buffer = sub();
-    ref(sub);
+    state.sub(sub);
   }
 }
 export const UPDATE_TAG = updateTag;
@@ -135,30 +105,27 @@ export const UPDATE_TAG = updateTag;
 export function combine(tags: Tag[]): Tag {
   if (tags.length === 0) return CONSTANT_TAG;
   if (tags.length === 1) return tags[0] as Tag;
-  return asTag(
-    computed(() => {
-      let max: Revision = INITIAL;
-      // Math.max propagates NaN, keeping any combinator that includes
-      // VOLATILE_TAG always-stale (validateTag is `snapshot >= NaN`).
-      for (const t of tags) max = Math.max(max, t());
-      return max;
-    })
-  );
+  return () => {
+    let max: Revision = INITIAL;
+    // Math.max propagates NaN, keeping combinators that include VOLATILE_TAG
+    // always-stale (validateTag is `snapshot >= NaN`).
+    for (const t of tags) max = Math.max(max, t());
+    return max;
+  };
 }
 
-export const CONSTANT_TAG: ConstantTag = asTag(() => INITIAL);
+export const CONSTANT_TAG: Tag = () => INITIAL;
+export const isConstTag = (tag: Tag): boolean => tag === CONSTANT_TAG;
 
-export const isConstTag = (tag: Tag): tag is ConstantTag => tag === CONSTANT_TAG;
-
-export const VOLATILE_TAG: Tag = asTag(() => {
+export const VOLATILE_TAG: Tag = () => {
   $tick();
   return VOLATILE;
-});
+};
 
-export const CURRENT_TAG: Tag = asTag(() => $tick());
+export const CURRENT_TAG: Tag = () => $tick();
 
-export function dirtyTag(tag: DirtyableTag, skipAssertion?: boolean): void {
-  const s = dirtyHandles.get(tag);
+export function dirtyTag(tag: Tag, skipAssertion?: boolean): void {
+  const s = dirtyWriters.get(tag);
   if (s === undefined) {
     if (DEBUG) throw new Error('Attempted to dirty a tag that was not dirtyable');
     return;

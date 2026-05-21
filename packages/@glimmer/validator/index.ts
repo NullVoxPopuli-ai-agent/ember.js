@@ -35,8 +35,6 @@ export {
 export {
   bump,
   combine,
-  COMPUTE,
-  CONSTANT,
   CONSTANT_TAG,
   createTag,
   createUpdatableTag,
@@ -48,7 +46,6 @@ export {
   UPDATE_TAG as updateTag,
   validateTag,
   valueForTag,
-  VOLATILE,
   VOLATILE_TAG,
 } from './lib/validators';
 export type {

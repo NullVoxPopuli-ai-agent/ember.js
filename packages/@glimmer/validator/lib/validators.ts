@@ -28,20 +28,24 @@ export const CONSTANT: Revision = 0;
 export const INITIAL: Revision = 1;
 export const VOLATILE: Revision = NaN;
 
-export let $REVISION = INITIAL;
-
-// Global "current revision" signal. Every mutation bumps it; reads inside an
-// alien-signals subscriber register a dependency on "any mutation since".
+// The one piece of global state: a monotonic counter that lives in a signal.
+// Every DIRTY_TAG advances it; CurrentTag/VolatileTag read it so subscribers
+// re-run on any mutation.
 const tick: { (): Revision; (v: Revision): void } = signal<Revision>(INITIAL);
 
-function advance(): Revision {
-  tick(++$REVISION);
-  return $REVISION;
+function next(): Revision {
+  const n = tick() + 1;
+  tick(n);
+  return n;
 }
 
 export function bump(): void {
-  advance();
+  next();
 }
+
+// Kept as an export only because it is part of the historical public API.
+// Reads tick() each time so callers see the current value.
+export const $REVISION: Revision = INITIAL;
 
 //////////
 
@@ -61,9 +65,12 @@ if (DEBUG) {
   ALLOW_CYCLES = new WeakMap();
 }
 
-function allowsCycles(tag: Tag): boolean {
-  return ALLOW_CYCLES === undefined || ALLOW_CYCLES.has(tag);
-}
+// alien-signals silently short-circuits re-entry into its own computeds, which
+// would let cycles slip through validation as if everything were fresh. ember's
+// computed system relies on the opposite: throw in DEBUG, bump the revision in
+// PROD so the cycle eventually breaks. Track which tags are currently being
+// computed in a WeakSet — cheap, no per-instance field, no per-call alloc.
+const computing = new WeakSet<object>();
 
 //////////
 
@@ -79,36 +86,32 @@ export function validateTag(tag: Tag, snapshot: Revision): boolean {
 
 type Sig<T> = { (): T; (v: T): void };
 
-/**
- * Every tag (dirtyable, updatable, combinator, constant) is one of these.
- * The whole "revision counter + lastChecked cache + subtagBufferCache" state
- * machine that used to live here has been replaced by alien-signals: each
- * tag's dirty state is a signal write, and folds across subtags are
- * memoized `computed`s that alien-signals invalidates automatically.
- */
+function guard(tag: object, fold: () => Revision): Revision {
+  if (computing.has(tag)) {
+    if (DEBUG && !(ALLOW_CYCLES === undefined || ALLOW_CYCLES.has(tag as Tag))) {
+      throw new Error('Cycles in tags are not allowed');
+    }
+    return next();
+  }
+  computing.add(tag);
+  try {
+    return fold();
+  } finally {
+    computing.delete(tag);
+  }
+}
+
 class TagImpl<T extends MonomorphicTagId = MonomorphicTagId> {
   declare [TYPE]: T;
   declare [COMPUTE]: () => Revision;
 
-  // Dirtyable/updatable only: the revision at which this tag was last dirtied.
   declare own: Sig<Revision>;
-
-  // Updatable only: pointer to the current subtag. Writing it invalidates
-  // every subscriber of this tag's [COMPUTE].
   declare subRef: Sig<Tag | null>;
-
-  // Updatable only: snapshot of subtag's revision at UPDATE_TAG time. While
-  // the subtag stays at this revision, the parent reports its pre-adoption
-  // value instead of jumping to the subtag's (possibly higher) revision.
-  buffer: Revision | null = null;
-  lastValue: Revision = INITIAL;
-
-  // Combinator only: immutable list of subtags.
   declare subs: Tag[];
 
-  // Re-entrance flag for the small amount of cycle handling alien-signals
-  // doesn't give us for free.
-  computing = false;
+  // Updatable only. See the fold body for the contract these encode.
+  buffer: Revision | null = null;
+  lastValue: Revision = INITIAL;
 
   constructor(type: T, subs?: Tag[]) {
     this[TYPE] = type;
@@ -118,64 +121,42 @@ class TagImpl<T extends MonomorphicTagId = MonomorphicTagId> {
       const fold = computed(() => {
         let max: Revision = INITIAL;
         for (const t of this.subs) {
-          // Math.max propagates NaN, which keeps combinators containing
-          // VOLATILE_TAG always-stale (validateTag tests `snapshot >= NaN`,
-          // which is false).
+          // Math.max propagates NaN — combinators containing VOLATILE_TAG
+          // (which returns NaN) must stay always-stale.
           max = Math.max(max, t[COMPUTE]());
         }
         return max;
       });
-      this[COMPUTE] = () => this.guard(fold);
+      this[COMPUTE] = () => guard(this, fold);
     } else if (type === UPDATABLE_TAG_ID) {
       this.own = signal<Revision>(INITIAL);
       this.subRef = signal<Tag | null>(null);
       const fold = computed(() => {
         const own = this.own();
         const sub = this.subRef();
+        if (sub === null) return own;
+        const subVal = sub[COMPUTE]();
+        // While the subtag is still at the revision it had when UPDATE_TAG
+        // adopted it, hide the adoption from validateTag — ember relies on
+        // this to keep `get(obj, 'cp')` from dirtying observers on `cp`
+        // through chain-tag setup.
         let result: Revision;
-        if (sub === null) {
-          result = own;
+        if (subVal === this.buffer) {
+          result = Math.max(own, this.lastValue);
         } else {
-          const subVal = sub[COMPUTE]();
-          // While subtag hasn't been dirtied since adoption, hide the
-          // bookkeeping jump that UPDATE_TAG would otherwise cause. Once the
-          // subtag is dirtied, clear the buffer so future reads track it.
-          if (subVal === this.buffer) {
-            result = Math.max(own, this.lastValue);
-          } else {
-            this.buffer = null;
-            result = Math.max(own, subVal);
-          }
+          this.buffer = null;
+          result = Math.max(own, subVal);
         }
         this.lastValue = result;
         return result;
       });
-      this[COMPUTE] = () => this.guard(fold);
+      this[COMPUTE] = () => guard(this, fold);
     } else if (type === DIRYTABLE_TAG_ID) {
       this.own = signal<Revision>(INITIAL);
       this[COMPUTE] = () => this.own();
     } else {
       // CONSTANT_TAG: never stale.
       this[COMPUTE] = () => INITIAL;
-    }
-  }
-
-  // Cycle detection: alien-signals short-circuits its own re-entry to avoid
-  // infinite recursion, but we still need to surface the cycle to ember's
-  // ALLOW_CYCLES contract. Run the check before alien-signals' computed
-  // wrapper short-circuits us.
-  private guard(fold: () => Revision): Revision {
-    if (this.computing) {
-      if (DEBUG && !allowsCycles(this)) {
-        throw new Error('Cycles in tags are not allowed');
-      }
-      return advance();
-    }
-    this.computing = true;
-    try {
-      return fold();
-    } finally {
-      this.computing = false;
     }
   }
 
@@ -215,7 +196,7 @@ class TagImpl<T extends MonomorphicTagId = MonomorphicTagId> {
     if (DEBUG && disableConsumptionAssertion !== true) {
       unwrap(debug.assertTagNotConsumed)(tag);
     }
-    (tag as unknown as TagImpl).own(advance());
+    (tag as unknown as TagImpl).own(next());
     scheduleRevalidate();
   }
 }
@@ -245,7 +226,6 @@ export function isConstTag(tag: Tag): tag is ConstantTag {
 export class VolatileTag implements Tag {
   readonly [TYPE] = VOLATILE_TAG_ID;
   [COMPUTE](): Revision {
-    // Read tick so an enclosing subscriber re-runs on every mutation.
     tick();
     return VOLATILE;
   }
@@ -263,25 +243,3 @@ export class CurrentTag implements Tag {
 }
 
 export const CURRENT_TAG = new CurrentTag();
-
-//////////
-
-// Warm
-
-let tag1 = createUpdatableTag();
-let tag2 = createUpdatableTag();
-let tag3 = createUpdatableTag();
-
-valueForTag(tag1);
-DIRTY_TAG(tag1);
-valueForTag(tag1);
-UPDATE_TAG(tag1, combine([tag2, tag3]));
-valueForTag(tag1);
-DIRTY_TAG(tag2);
-valueForTag(tag1);
-DIRTY_TAG(tag3);
-valueForTag(tag1);
-UPDATE_TAG(tag1, tag3);
-valueForTag(tag1);
-DIRTY_TAG(tag3);
-valueForTag(tag1);

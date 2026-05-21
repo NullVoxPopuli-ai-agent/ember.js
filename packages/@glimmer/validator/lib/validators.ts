@@ -15,7 +15,7 @@ import type {
   VOLATILE_TAG_ID as IVOLATILE_TAG_ID,
 } from '@glimmer/interfaces';
 import { scheduleRevalidate } from '@glimmer/global-context';
-import { signal } from 'alien-signals';
+import { computed, signal } from 'alien-signals';
 
 import { debug } from './debug';
 import { unwrap } from './utils';
@@ -30,22 +30,17 @@ export const VOLATILE: Revision = NaN;
 
 export let $REVISION = INITIAL;
 
-// A single signal carrying the global revision counter. Reading it inside an
-// alien-signals subscriber registers a dependency on "any mutation has
-// happened since"; writing to it on every dirty notifies all such
-// subscribers. CurrentTag and VolatileTag are non-trivial in the absence of
-// per-tag storage and use this signal to participate in the dependency
-// graph; everything else flows through the per-tag signals below.
-const GLOBAL_REV_SIGNAL: { (): Revision; (value: Revision): void } = signal<Revision>(INITIAL);
+// Global "current revision" signal. Every mutation bumps it; reads inside an
+// alien-signals subscriber register a dependency on "any mutation since".
+const tick: { (): Revision; (v: Revision): void } = signal<Revision>(INITIAL);
 
-function advanceGlobalRev(): Revision {
-  $REVISION++;
-  GLOBAL_REV_SIGNAL($REVISION);
+function advance(): Revision {
+  tick(++$REVISION);
   return $REVISION;
 }
 
 export function bump(): void {
-  advanceGlobalRev();
+  advance();
 }
 
 //////////
@@ -54,181 +49,158 @@ const DIRYTABLE_TAG_ID: IDIRTYABLE_TAG_ID = 0;
 const UPDATABLE_TAG_ID: IUPDATABLE_TAG_ID = 1;
 const COMBINATOR_TAG_ID: ICOMBINATOR_TAG_ID = 2;
 const CONSTANT_TAG_ID: ICONSTANT_TAG_ID = 3;
+const VOLATILE_TAG_ID: IVOLATILE_TAG_ID = 100;
+const CURRENT_TAG_ID: ICURRENT_TAG_ID = 101;
 
-//////////
-
+const TYPE: TagTypeSymbol = Symbol('TAG_TYPE') as TagTypeSymbol;
 export const COMPUTE: TagComputeSymbol = Symbol('TAG_COMPUTE') as TagComputeSymbol;
 Reflect.set(globalThis, 'COMPUTE_SYMBOL', COMPUTE);
 
+export let ALLOW_CYCLES: WeakMap<Tag, boolean> | undefined;
+if (DEBUG) {
+  ALLOW_CYCLES = new WeakMap();
+}
+
+function allowsCycles(tag: Tag): boolean {
+  return ALLOW_CYCLES === undefined || ALLOW_CYCLES.has(tag);
+}
+
 //////////
 
-/**
- * `value` receives a tag and returns an opaque Revision based on that tag. This
- * snapshot can then later be passed to `validate` with the same tag to
- * determine if the tag has changed at all since the time that `value` was
- * called.
- *
- * @param tag
- */
 export function valueForTag(tag: Tag): Revision {
   return tag[COMPUTE]();
 }
 
-/**
- * `validate` receives a tag and a snapshot from a previous call to `value` with
- * the same tag, and determines if the tag is still valid compared to the
- * snapshot. If the tag's state has changed at all since then, `validate` will
- * return false, otherwise it will return true. This is used to determine if a
- * calculation related to the tags should be rerun.
- *
- * @param tag
- * @param snapshot
- */
 export function validateTag(tag: Tag, snapshot: Revision): boolean {
   return snapshot >= tag[COMPUTE]();
 }
 
 //////////
 
-const TYPE: TagTypeSymbol = Symbol('TAG_TYPE') as TagTypeSymbol;
+type Sig<T> = { (): T; (v: T): void };
 
-// this is basically a const
-export let ALLOW_CYCLES: WeakMap<Tag, boolean> | undefined;
+/**
+ * Every tag (dirtyable, updatable, combinator, constant) is one of these.
+ * The whole "revision counter + lastChecked cache + subtagBufferCache" state
+ * machine that used to live here has been replaced by alien-signals: each
+ * tag's dirty state is a signal write, and folds across subtags are
+ * memoized `computed`s that alien-signals invalidates automatically.
+ */
+class TagImpl<T extends MonomorphicTagId = MonomorphicTagId> {
+  declare [TYPE]: T;
+  declare [COMPUTE]: () => Revision;
 
-if (DEBUG) {
-  ALLOW_CYCLES = new WeakMap();
-}
+  // Dirtyable/updatable only: the revision at which this tag was last dirtied.
+  declare own: Sig<Revision>;
 
-function allowsCycles(tag: Tag): boolean {
-  if (ALLOW_CYCLES === undefined) {
-    return true;
-  } else {
-    return ALLOW_CYCLES.has(tag);
+  // Updatable only: pointer to the current subtag. Writing it invalidates
+  // every subscriber of this tag's [COMPUTE].
+  declare subRef: Sig<Tag | null>;
+
+  // Updatable only: snapshot of subtag's revision at UPDATE_TAG time. While
+  // the subtag stays at this revision, the parent reports its pre-adoption
+  // value instead of jumping to the subtag's (possibly higher) revision.
+  buffer: Revision | null = null;
+  lastValue: Revision = INITIAL;
+
+  // Combinator only: immutable list of subtags.
+  declare subs: Tag[];
+
+  // Re-entrance flag for the small amount of cycle handling alien-signals
+  // doesn't give us for free.
+  computing = false;
+
+  constructor(type: T, subs?: Tag[]) {
+    this[TYPE] = type;
+
+    if (type === COMBINATOR_TAG_ID) {
+      this.subs = subs as Tag[];
+      const fold = computed(() => {
+        let max: Revision = INITIAL;
+        for (const t of this.subs) {
+          // Math.max propagates NaN, which keeps combinators containing
+          // VOLATILE_TAG always-stale (validateTag tests `snapshot >= NaN`,
+          // which is false).
+          max = Math.max(max, t[COMPUTE]());
+        }
+        return max;
+      });
+      this[COMPUTE] = () => this.guard(fold);
+    } else if (type === UPDATABLE_TAG_ID) {
+      this.own = signal<Revision>(INITIAL);
+      this.subRef = signal<Tag | null>(null);
+      const fold = computed(() => {
+        const own = this.own();
+        const sub = this.subRef();
+        let result: Revision;
+        if (sub === null) {
+          result = own;
+        } else {
+          const subVal = sub[COMPUTE]();
+          // While subtag hasn't been dirtied since adoption, hide the
+          // bookkeeping jump that UPDATE_TAG would otherwise cause. Once the
+          // subtag is dirtied, clear the buffer so future reads track it.
+          if (subVal === this.buffer) {
+            result = Math.max(own, this.lastValue);
+          } else {
+            this.buffer = null;
+            result = Math.max(own, subVal);
+          }
+        }
+        this.lastValue = result;
+        return result;
+      });
+      this[COMPUTE] = () => this.guard(fold);
+    } else if (type === DIRYTABLE_TAG_ID) {
+      this.own = signal<Revision>(INITIAL);
+      this[COMPUTE] = () => this.own();
+    } else {
+      // CONSTANT_TAG: never stale.
+      this[COMPUTE] = () => INITIAL;
+    }
   }
-}
 
-type SignalAccessor<T> = { (): T; (value: T): void };
+  // Cycle detection: alien-signals short-circuits its own re-entry to avoid
+  // infinite recursion, but we still need to surface the cycle to ember's
+  // ALLOW_CYCLES contract. Run the check before alien-signals' computed
+  // wrapper short-circuits us.
+  private guard(fold: () => Revision): Revision {
+    if (this.computing) {
+      if (DEBUG && !allowsCycles(this)) {
+        throw new Error('Cycles in tags are not allowed');
+      }
+      return advance();
+    }
+    this.computing = true;
+    try {
+      return fold();
+    } finally {
+      this.computing = false;
+    }
+  }
 
-class MonomorphicTagImpl<T extends MonomorphicTagId = MonomorphicTagId> {
   static combine(this: void, tags: Tag[]): Tag {
     switch (tags.length) {
       case 0:
         return CONSTANT_TAG;
       case 1:
         return tags[0] as Tag;
-      default: {
-        let tag: MonomorphicTagImpl = new MonomorphicTagImpl(COMBINATOR_TAG_ID);
-        tag.subtag = tags;
-        return tag;
-      }
+      default:
+        return new TagImpl(COMBINATOR_TAG_ID, tags);
     }
   }
 
-  private revision = INITIAL;
-  private lastChecked = INITIAL;
-  private lastValue = INITIAL;
-
-  private isUpdating = false;
-  public subtag: Tag | Tag[] | null = null;
-  private subtagBufferCache: Revision | null = null;
-
-  // Per-tag alien-signals signal. Reading it inside an active subscriber
-  // (computed/effect) registers this tag as a dependency; writing to it on
-  // DIRTY_TAG notifies any such subscriber. The numeric value mirrors
-  // `revision` and isn't itself consumed for staleness checks (those use
-  // `revision` directly), but the read-write pair is what wires the tag into
-  // the alien-signals dependency graph for external consumers.
-  private revSignal: SignalAccessor<Revision> = signal<Revision>(INITIAL);
-
-  declare [TYPE]: T;
-
-  constructor(type: T) {
-    this[TYPE] = type;
-  }
-
-  [COMPUTE](): Revision {
-    // Always read the signal so an enclosing alien-signals subscriber
-    // registers this tag as a dependency, even when the cached lastValue
-    // short-circuits the rest of the computation.
-    this.revSignal();
-
-    let { lastChecked } = this;
-
-    if (this.isUpdating) {
-      if (DEBUG && !allowsCycles(this)) {
-        throw new Error('Cycles in tags are not allowed');
-      }
-
-      this.lastChecked = ++$REVISION;
-    } else if (lastChecked !== $REVISION) {
-      this.isUpdating = true;
-      this.lastChecked = $REVISION;
-
-      try {
-        let { subtag, revision } = this;
-
-        if (subtag !== null) {
-          if (Array.isArray(subtag)) {
-            for (const tag of subtag) {
-              let value = tag[COMPUTE]();
-              revision = Math.max(value, revision);
-            }
-          } else {
-            let subtagValue = subtag[COMPUTE]();
-
-            if (subtagValue === this.subtagBufferCache) {
-              revision = Math.max(revision, this.lastValue);
-            } else {
-              // Clear the temporary buffer cache
-              this.subtagBufferCache = null;
-              revision = Math.max(revision, subtagValue);
-            }
-          }
-        }
-
-        this.lastValue = revision;
-      } finally {
-        this.isUpdating = false;
-      }
-    }
-
-    return this.lastValue;
-  }
-
-  static updateTag(this: void, _tag: UpdatableTag, _subtag: Tag) {
-    // catch bug by non-TS users
-
+  static updateTag(this: void, _tag: UpdatableTag, _subtag: Tag): void {
     if (DEBUG && _tag[TYPE] !== UPDATABLE_TAG_ID) {
       throw new Error('Attempted to update a tag that was not updatable');
     }
-
-    // TODO: TS 3.7 should allow us to do this via assertion
-    let tag = _tag as MonomorphicTagImpl;
-    let subtag = _subtag as MonomorphicTagImpl;
-
-    if (subtag === CONSTANT_TAG) {
-      tag.subtag = null;
+    const tag = _tag as unknown as TagImpl;
+    if (_subtag === CONSTANT_TAG) {
+      tag.buffer = null;
+      tag.subRef(null);
     } else {
-      // There are two different possibilities when updating a subtag:
-      //
-      // 1. subtag[COMPUTE]() <= tag[COMPUTE]();
-      // 2. subtag[COMPUTE]() > tag[COMPUTE]();
-      //
-      // The first possibility is completely fine within our caching model, but
-      // the second possibility presents a problem. If the parent tag has
-      // already been read, then it's value is cached and will not update to
-      // reflect the subtag's greater value. Next time the cache is busted, the
-      // subtag's value _will_ be read, and it's value will be _greater_ than
-      // the saved snapshot of the parent, causing the resulting calculation to
-      // be rerun erroneously.
-      //
-      // In order to prevent this, when we first update to a new subtag we store
-      // its computed value, and then check against that computed value on
-      // subsequent updates. If its value hasn't changed, then we return the
-      // parent's previous value. Once the subtag changes for the first time,
-      // we clear the cache and everything is finally in sync with the parent.
-      tag.subtagBufferCache = subtag[COMPUTE]();
-      tag.subtag = subtag;
+      tag.buffer = _subtag[COMPUTE]();
+      tag.subRef(_subtag);
     }
   }
 
@@ -236,47 +208,33 @@ class MonomorphicTagImpl<T extends MonomorphicTagId = MonomorphicTagId> {
     this: void,
     tag: DirtyableTag | UpdatableTag,
     disableConsumptionAssertion?: boolean
-  ) {
-    if (
-      DEBUG &&
-      // catch bug by non-TS users
-
-      !(tag[TYPE] === UPDATABLE_TAG_ID || tag[TYPE] === DIRYTABLE_TAG_ID)
-    ) {
+  ): void {
+    if (DEBUG && !(tag[TYPE] === UPDATABLE_TAG_ID || tag[TYPE] === DIRYTABLE_TAG_ID)) {
       throw new Error('Attempted to dirty a tag that was not dirtyable');
     }
-
     if (DEBUG && disableConsumptionAssertion !== true) {
-      // Usually by this point, we've already asserted with better error information,
-      // but this is our last line of defense.
       unwrap(debug.assertTagNotConsumed)(tag);
     }
-
-    const next = advanceGlobalRev();
-    (tag as MonomorphicTagImpl).revision = next;
-    // Notify any alien-signals subscriber that read this tag's revSignal.
-    (tag as MonomorphicTagImpl).revSignal(next);
-
+    (tag as unknown as TagImpl).own(advance());
     scheduleRevalidate();
   }
 }
 
-export const DIRTY_TAG = MonomorphicTagImpl.dirtyTag;
-export const UPDATE_TAG = MonomorphicTagImpl.updateTag;
+export const DIRTY_TAG = TagImpl.dirtyTag;
+export const UPDATE_TAG = TagImpl.updateTag;
+export const combine = TagImpl.combine;
 
 //////////
 
 export function createTag(): DirtyableTag {
-  return new MonomorphicTagImpl(DIRYTABLE_TAG_ID);
+  return new TagImpl(DIRYTABLE_TAG_ID);
 }
 
 export function createUpdatableTag(): UpdatableTag {
-  return new MonomorphicTagImpl(UPDATABLE_TAG_ID);
+  return new TagImpl(UPDATABLE_TAG_ID);
 }
 
-//////////
-
-export const CONSTANT_TAG: ConstantTag = new MonomorphicTagImpl(CONSTANT_TAG_ID);
+export const CONSTANT_TAG: ConstantTag = new TagImpl(CONSTANT_TAG_ID);
 
 export function isConstTag(tag: Tag): tag is ConstantTag {
   return tag === CONSTANT_TAG;
@@ -284,15 +242,11 @@ export function isConstTag(tag: Tag): tag is ConstantTag {
 
 //////////
 
-const VOLATILE_TAG_ID: IVOLATILE_TAG_ID = 100;
-
 export class VolatileTag implements Tag {
   readonly [TYPE] = VOLATILE_TAG_ID;
   [COMPUTE](): Revision {
-    // Read the global revision signal so an enclosing alien-signals
-    // subscriber re-runs on every mutation — VOLATILE_TAG is by definition
-    // always invalid.
-    GLOBAL_REV_SIGNAL();
+    // Read tick so an enclosing subscriber re-runs on every mutation.
+    tick();
     return VOLATILE;
   }
 }
@@ -301,22 +255,16 @@ export const VOLATILE_TAG = new VolatileTag();
 
 //////////
 
-const CURRENT_TAG_ID: ICURRENT_TAG_ID = 101;
-
 export class CurrentTag implements Tag {
   readonly [TYPE] = CURRENT_TAG_ID;
   [COMPUTE](): Revision {
-    // Read the global revision signal so an enclosing alien-signals
-    // subscriber re-runs whenever the global revision advances.
-    return GLOBAL_REV_SIGNAL();
+    return tick();
   }
 }
 
 export const CURRENT_TAG = new CurrentTag();
 
 //////////
-
-export const combine = MonomorphicTagImpl.combine;
 
 // Warm
 

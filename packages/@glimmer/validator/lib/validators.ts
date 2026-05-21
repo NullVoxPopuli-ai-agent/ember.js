@@ -15,6 +15,7 @@ import type {
   VOLATILE_TAG_ID as IVOLATILE_TAG_ID,
 } from '@glimmer/interfaces';
 import { scheduleRevalidate } from '@glimmer/global-context';
+import { signal } from 'alien-signals';
 
 import { debug } from './debug';
 import { unwrap } from './utils';
@@ -29,8 +30,22 @@ export const VOLATILE: Revision = NaN;
 
 export let $REVISION = INITIAL;
 
-export function bump(): void {
+// A single signal carrying the global revision counter. Reading it inside an
+// alien-signals subscriber registers a dependency on "any mutation has
+// happened since"; writing to it on every dirty notifies all such
+// subscribers. CurrentTag and VolatileTag are non-trivial in the absence of
+// per-tag storage and use this signal to participate in the dependency
+// graph; everything else flows through the per-tag signals below.
+const GLOBAL_REV_SIGNAL: { (): Revision; (value: Revision): void } = signal<Revision>(INITIAL);
+
+function advanceGlobalRev(): Revision {
   $REVISION++;
+  GLOBAL_REV_SIGNAL($REVISION);
+  return $REVISION;
+}
+
+export function bump(): void {
+  advanceGlobalRev();
 }
 
 //////////
@@ -92,6 +107,8 @@ function allowsCycles(tag: Tag): boolean {
   }
 }
 
+type SignalAccessor<T> = { (): T; (value: T): void };
+
 class MonomorphicTagImpl<T extends MonomorphicTagId = MonomorphicTagId> {
   static combine(this: void, tags: Tag[]): Tag {
     switch (tags.length) {
@@ -115,6 +132,14 @@ class MonomorphicTagImpl<T extends MonomorphicTagId = MonomorphicTagId> {
   public subtag: Tag | Tag[] | null = null;
   private subtagBufferCache: Revision | null = null;
 
+  // Per-tag alien-signals signal. Reading it inside an active subscriber
+  // (computed/effect) registers this tag as a dependency; writing to it on
+  // DIRTY_TAG notifies any such subscriber. The numeric value mirrors
+  // `revision` and isn't itself consumed for staleness checks (those use
+  // `revision` directly), but the read-write pair is what wires the tag into
+  // the alien-signals dependency graph for external consumers.
+  private revSignal: SignalAccessor<Revision> = signal<Revision>(INITIAL);
+
   declare [TYPE]: T;
 
   constructor(type: T) {
@@ -122,6 +147,11 @@ class MonomorphicTagImpl<T extends MonomorphicTagId = MonomorphicTagId> {
   }
 
   [COMPUTE](): Revision {
+    // Always read the signal so an enclosing alien-signals subscriber
+    // registers this tag as a dependency, even when the cached lastValue
+    // short-circuits the rest of the computation.
+    this.revSignal();
+
     let { lastChecked } = this;
 
     if (this.isUpdating) {
@@ -222,7 +252,10 @@ class MonomorphicTagImpl<T extends MonomorphicTagId = MonomorphicTagId> {
       unwrap(debug.assertTagNotConsumed)(tag);
     }
 
-    (tag as MonomorphicTagImpl).revision = ++$REVISION;
+    const next = advanceGlobalRev();
+    (tag as MonomorphicTagImpl).revision = next;
+    // Notify any alien-signals subscriber that read this tag's revSignal.
+    (tag as MonomorphicTagImpl).revSignal(next);
 
     scheduleRevalidate();
   }
@@ -256,6 +289,10 @@ const VOLATILE_TAG_ID: IVOLATILE_TAG_ID = 100;
 export class VolatileTag implements Tag {
   readonly [TYPE] = VOLATILE_TAG_ID;
   [COMPUTE](): Revision {
+    // Read the global revision signal so an enclosing alien-signals
+    // subscriber re-runs on every mutation — VOLATILE_TAG is by definition
+    // always invalid.
+    GLOBAL_REV_SIGNAL();
     return VOLATILE;
   }
 }
@@ -269,7 +306,9 @@ const CURRENT_TAG_ID: ICURRENT_TAG_ID = 101;
 export class CurrentTag implements Tag {
   readonly [TYPE] = CURRENT_TAG_ID;
   [COMPUTE](): Revision {
-    return $REVISION;
+    // Read the global revision signal so an enclosing alien-signals
+    // subscriber re-runs whenever the global revision advances.
+    return GLOBAL_REV_SIGNAL();
   }
 }
 

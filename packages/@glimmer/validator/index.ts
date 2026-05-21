@@ -33,7 +33,6 @@ export {
   untrack,
 } from './lib/tracking';
 export {
-  ALLOW_CYCLES,
   bump,
   combine,
   COMPUTE,

@@ -9,12 +9,6 @@ export type UPDATABLE_TAG_ID = 1;
 export type COMBINATOR_TAG_ID = 2;
 export type CONSTANT_TAG_ID = 3;
 
-/**
- * This union represents all of the possible tag types for the monomorphic tag class.
- * Other custom tag classes can exist, such as CurrentTag and VolatileTag, but for
- * performance reasons, any type of tag that is meant to be used frequently should
- * be added to the monomorphic tag.
- */
 export type MonomorphicTagId =
   | DIRTYABLE_TAG_ID
   | UPDATABLE_TAG_ID
@@ -30,28 +24,17 @@ export type TagId = MonomorphicTagId | PolymorphicTagId;
 
 export type Revision = number;
 
+// A Tag is a callable: it returns the current revision and, when called
+// inside an alien-signals subscriber, registers a dependency. The [COMPUTE]
+// alias is kept only because a few places still write `tag[COMPUTE]()`.
 export interface Tag {
-  readonly [TYPE]: TagId;
+  (): Revision;
+  readonly [COMPUTE]?: () => Revision;
   readonly subtag?: Tag | Tag[] | null | undefined;
-  [COMPUTE](): Revision;
 }
 
-export interface MonomorphicTag extends Tag {
-  readonly [TYPE]: MonomorphicTagId;
-}
-
-export interface UpdatableTag extends MonomorphicTag {
-  readonly [TYPE]: UPDATABLE_TAG_ID;
-}
-
-export interface DirtyableTag extends MonomorphicTag {
-  readonly [TYPE]: DIRTYABLE_TAG_ID;
-}
-
-export interface ConstantTag extends MonomorphicTag {
-  readonly [TYPE]: CONSTANT_TAG_ID;
-}
-
-export interface CombinatorTag extends MonomorphicTag {
-  readonly [TYPE]: COMBINATOR_TAG_ID;
-}
+export type MonomorphicTag = Tag;
+export type UpdatableTag = Tag;
+export type DirtyableTag = Tag;
+export type ConstantTag = Tag;
+export type CombinatorTag = Tag;

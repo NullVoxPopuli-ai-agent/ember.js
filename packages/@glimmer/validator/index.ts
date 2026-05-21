@@ -42,7 +42,6 @@ export {
   createTag,
   createUpdatableTag,
   CURRENT_TAG,
-  CurrentTag,
   DIRTY_TAG as dirtyTag,
   INITIAL,
   isConstTag,
@@ -52,7 +51,6 @@ export {
   valueForTag,
   VOLATILE,
   VOLATILE_TAG,
-  VolatileTag,
 } from './lib/validators';
 export type {
   CombinatorTag,

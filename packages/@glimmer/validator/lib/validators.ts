@@ -6,7 +6,6 @@ import type {
   CURRENT_TAG_ID as ICURRENT_TAG_ID,
   DIRTYABLE_TAG_ID as IDIRTYABLE_TAG_ID,
   DirtyableTag,
-  MonomorphicTagId,
   Tag,
   TagComputeSymbol,
   TagTypeSymbol,
@@ -15,231 +14,185 @@ import type {
   VOLATILE_TAG_ID as IVOLATILE_TAG_ID,
 } from '@glimmer/interfaces';
 import { scheduleRevalidate } from '@glimmer/global-context';
-import { computed, signal } from 'alien-signals';
+import { signal } from 'alien-signals';
 
 import { debug } from './debug';
 import { unwrap } from './utils';
 
-//////////
-
 export type Revision = number;
-
 export const CONSTANT: Revision = 0;
 export const INITIAL: Revision = 1;
 export const VOLATILE: Revision = NaN;
-
-// The one piece of global state: a monotonic counter that lives in a signal.
-// Every DIRTY_TAG advances it; CurrentTag/VolatileTag read it so subscribers
-// re-run on any mutation.
-const tick: { (): Revision; (v: Revision): void } = signal<Revision>(INITIAL);
-
-function next(): Revision {
-  const n = tick() + 1;
-  tick(n);
-  return n;
-}
-
-export function bump(): void {
-  next();
-}
-
-// Kept as an export only because it is part of the historical public API.
-// Reads tick() each time so callers see the current value.
-export const $REVISION: Revision = INITIAL;
-
-//////////
-
-const DIRYTABLE_TAG_ID: IDIRTYABLE_TAG_ID = 0;
-const UPDATABLE_TAG_ID: IUPDATABLE_TAG_ID = 1;
-const COMBINATOR_TAG_ID: ICOMBINATOR_TAG_ID = 2;
-const CONSTANT_TAG_ID: ICONSTANT_TAG_ID = 3;
-const VOLATILE_TAG_ID: IVOLATILE_TAG_ID = 100;
-const CURRENT_TAG_ID: ICURRENT_TAG_ID = 101;
 
 const TYPE: TagTypeSymbol = Symbol('TAG_TYPE') as TagTypeSymbol;
 export const COMPUTE: TagComputeSymbol = Symbol('TAG_COMPUTE') as TagComputeSymbol;
 Reflect.set(globalThis, 'COMPUTE_SYMBOL', COMPUTE);
 
+const DIRTYABLE: IDIRTYABLE_TAG_ID = 0;
+const UPDATABLE: IUPDATABLE_TAG_ID = 1;
+const COMBINATOR: ICOMBINATOR_TAG_ID = 2;
+const CONST: ICONSTANT_TAG_ID = 3;
+const VOLATILE_ID: IVOLATILE_TAG_ID = 100;
+const CURRENT_ID: ICURRENT_TAG_ID = 101;
+
+// The one piece of shared state. Every DIRTY_TAG advances the tick; readers
+// inside an alien-signals subscriber pick up a dependency on "any mutation
+// happened since" through CurrentTag/VolatileTag.
+const $tick = signal<Revision>(INITIAL);
+const advance = (): Revision => {
+  const n = $tick() + 1;
+  $tick(n);
+  return n;
+};
+export const bump = (): void => {
+  advance();
+};
+
 export let ALLOW_CYCLES: WeakMap<Tag, boolean> | undefined;
-if (DEBUG) {
-  ALLOW_CYCLES = new WeakMap();
-}
+if (DEBUG) ALLOW_CYCLES = new WeakMap();
 
-// alien-signals silently short-circuits re-entry into its own computeds, which
-// would let cycles slip through validation as if everything were fresh. ember's
-// computed system relies on the opposite: throw in DEBUG, bump the revision in
-// PROD so the cycle eventually breaks. Track which tags are currently being
-// computed in a WeakSet — cheap, no per-instance field, no per-call alloc.
-const computing = new WeakSet<object>();
-
-//////////
-
-export function valueForTag(tag: Tag): Revision {
-  return tag[COMPUTE]();
-}
-
-export function validateTag(tag: Tag, snapshot: Revision): boolean {
-  return snapshot >= tag[COMPUTE]();
-}
-
-//////////
-
-type Sig<T> = { (): T; (v: T): void };
-
-function guard(tag: object, fold: () => Revision): Revision {
-  if (computing.has(tag)) {
-    if (DEBUG && !(ALLOW_CYCLES === undefined || ALLOW_CYCLES.has(tag as Tag))) {
+// Cycle handling. alien-signals silently short-circuits re-entry; ember's CP
+// system intentionally constructs cycles between property tags and expects
+// either a throw (DEBUG) or a stable cached value with the global revision
+// advanced (production), so that other caches invalidate on the next read.
+const inFlight = new WeakSet<object>();
+const safeCompute = (tag: ReadonlyTag, fold: () => Revision): Revision => {
+  if (inFlight.has(tag)) {
+    if (DEBUG && !(ALLOW_CYCLES === undefined || ALLOW_CYCLES.has(tag as unknown as Tag))) {
       throw new Error('Cycles in tags are not allowed');
     }
-    return next();
+    advance();
+    return tag.lastValue;
   }
-  computing.add(tag);
+  inFlight.add(tag);
   try {
     return fold();
   } finally {
-    computing.delete(tag);
+    inFlight.delete(tag);
   }
+};
+
+type Sig<T> = { (): T; (v: T): void };
+interface ReadonlyTag {
+  lastValue: Revision;
 }
 
-class TagImpl<T extends MonomorphicTagId = MonomorphicTagId> {
-  declare [TYPE]: T;
-  declare [COMPUTE]: () => Revision;
-
-  declare own: Sig<Revision>;
-  declare subRef: Sig<Tag | null>;
-  declare subs: Tag[];
-
-  // Updatable only. See the fold body for the contract these encode.
-  buffer: Revision | null = null;
-  lastValue: Revision = INITIAL;
-
-  constructor(type: T, subs?: Tag[]) {
-    this[TYPE] = type;
-
-    if (type === COMBINATOR_TAG_ID) {
-      this.subs = subs as Tag[];
-      const fold = computed(() => {
-        let max: Revision = INITIAL;
-        for (const t of this.subs) {
-          // Math.max propagates NaN — combinators containing VOLATILE_TAG
-          // (which returns NaN) must stay always-stale.
-          max = Math.max(max, t[COMPUTE]());
-        }
-        return max;
-      });
-      this[COMPUTE] = () => guard(this, fold);
-    } else if (type === UPDATABLE_TAG_ID) {
-      this.own = signal<Revision>(INITIAL);
-      this.subRef = signal<Tag | null>(null);
-      const fold = computed(() => {
-        const own = this.own();
-        const sub = this.subRef();
-        if (sub === null) return own;
-        const subVal = sub[COMPUTE]();
-        // While the subtag is still at the revision it had when UPDATE_TAG
-        // adopted it, hide the adoption from validateTag — ember relies on
-        // this to keep `get(obj, 'cp')` from dirtying observers on `cp`
-        // through chain-tag setup.
-        let result: Revision;
-        if (subVal === this.buffer) {
-          result = Math.max(own, this.lastValue);
-        } else {
-          this.buffer = null;
-          result = Math.max(own, subVal);
-        }
-        this.lastValue = result;
-        return result;
-      });
-      this[COMPUTE] = () => guard(this, fold);
-    } else if (type === DIRYTABLE_TAG_ID) {
-      this.own = signal<Revision>(INITIAL);
-      this[COMPUTE] = () => this.own();
-    } else {
-      // CONSTANT_TAG: never stale.
-      this[COMPUTE] = () => INITIAL;
-    }
-  }
-
-  static combine(this: void, tags: Tag[]): Tag {
-    switch (tags.length) {
-      case 0:
-        return CONSTANT_TAG;
-      case 1:
-        return tags[0] as Tag;
-      default:
-        return new TagImpl(COMBINATOR_TAG_ID, tags);
-    }
-  }
-
-  static updateTag(this: void, _tag: UpdatableTag, _subtag: Tag): void {
-    if (DEBUG && _tag[TYPE] !== UPDATABLE_TAG_ID) {
-      throw new Error('Attempted to update a tag that was not updatable');
-    }
-    const tag = _tag as unknown as TagImpl;
-    if (_subtag === CONSTANT_TAG) {
-      tag.buffer = null;
-      tag.subRef(null);
-    } else {
-      tag.buffer = _subtag[COMPUTE]();
-      tag.subRef(_subtag);
-    }
-  }
-
-  static dirtyTag(
-    this: void,
-    tag: DirtyableTag | UpdatableTag,
-    disableConsumptionAssertion?: boolean
-  ): void {
-    if (DEBUG && !(tag[TYPE] === UPDATABLE_TAG_ID || tag[TYPE] === DIRYTABLE_TAG_ID)) {
-      throw new Error('Attempted to dirty a tag that was not dirtyable');
-    }
-    if (DEBUG && disableConsumptionAssertion !== true) {
-      unwrap(debug.assertTagNotConsumed)(tag);
-    }
-    (tag as unknown as TagImpl).own(next());
-    scheduleRevalidate();
-  }
-}
-
-export const DIRTY_TAG = TagImpl.dirtyTag;
-export const UPDATE_TAG = TagImpl.updateTag;
-export const combine = TagImpl.combine;
-
-//////////
+export const valueForTag = (tag: Tag): Revision => tag[COMPUTE]();
+export const validateTag = (tag: Tag, snapshot: Revision): boolean => snapshot >= tag[COMPUTE]();
 
 export function createTag(): DirtyableTag {
-  return new TagImpl(DIRYTABLE_TAG_ID);
+  const own = signal<Revision>(INITIAL);
+  return {
+    [TYPE]: DIRTYABLE,
+    [COMPUTE]: () => own(),
+    own,
+    lastValue: INITIAL,
+  } as unknown as DirtyableTag;
+}
+
+interface UpdatableInternals extends Tag, ReadonlyTag {
+  own: Sig<Revision>;
+  sub: Sig<Tag | null>;
+  buffer: Revision | null;
 }
 
 export function createUpdatableTag(): UpdatableTag {
-  return new TagImpl(UPDATABLE_TAG_ID);
+  const own = signal<Revision>(INITIAL);
+  const sub = signal<Tag | null>(null);
+  const tag: UpdatableInternals = {
+    [TYPE]: UPDATABLE,
+    own,
+    sub,
+    buffer: null,
+    lastValue: INITIAL,
+    [COMPUTE]: () => safeCompute(tag, fold),
+  };
+  // The buffer/lastValue pair preserves ember's "adopting a subtag with a
+  // higher revision doesn't immediately invalidate snapshots taken before
+  // the adoption" contract — see updateTag below and the explicit test in
+  // test/validators-test.ts. While `subVal === buffer` (i.e. the subtag is
+  // still at the revision captured at UPDATE_TAG time), the parent reports
+  // its pre-adoption value instead of jumping to the subtag's value.
+  const fold = (): Revision => {
+    const o = own();
+    const s = sub();
+    if (s === null) {
+      tag.lastValue = o;
+      return o;
+    }
+    const sv = s[COMPUTE]();
+    const r =
+      sv === tag.buffer ? Math.max(o, tag.lastValue) : ((tag.buffer = null), Math.max(o, sv));
+    tag.lastValue = r;
+    return r;
+  };
+  return tag as unknown as UpdatableTag;
 }
 
-export const CONSTANT_TAG: ConstantTag = new TagImpl(CONSTANT_TAG_ID);
+interface CombinatorInternals extends Tag, ReadonlyTag {}
 
-export function isConstTag(tag: Tag): tag is ConstantTag {
-  return tag === CONSTANT_TAG;
+export function combine(tags: Tag[]): Tag {
+  if (tags.length === 0) return CONSTANT_TAG;
+  if (tags.length === 1) return tags[0] as Tag;
+  const tag: CombinatorInternals = {
+    [TYPE]: COMBINATOR,
+    lastValue: INITIAL,
+    [COMPUTE]: () =>
+      safeCompute(tag, () => {
+        let max: Revision = INITIAL;
+        // Math.max propagates NaN, which keeps combinators containing
+        // VOLATILE_TAG always-stale (validateTag tests `snapshot >= NaN`).
+        for (const t of tags) max = Math.max(max, t[COMPUTE]());
+        tag.lastValue = max;
+        return max;
+      }),
+  };
+  return tag;
 }
 
-//////////
+export const CONSTANT_TAG: ConstantTag = {
+  [TYPE]: CONST,
+  [COMPUTE]: () => INITIAL,
+};
 
-export class VolatileTag implements Tag {
-  readonly [TYPE] = VOLATILE_TAG_ID;
-  [COMPUTE](): Revision {
-    tick();
+export const isConstTag = (tag: Tag): tag is ConstantTag => tag === CONSTANT_TAG;
+
+export const VOLATILE_TAG: Tag = {
+  [TYPE]: VOLATILE_ID,
+  [COMPUTE]: () => {
+    $tick();
     return VOLATILE;
+  },
+};
+
+export const CURRENT_TAG: Tag = {
+  [TYPE]: CURRENT_ID,
+  [COMPUTE]: () => $tick(),
+};
+
+export function updateTag(tag: UpdatableTag, sub: Tag): void {
+  if (DEBUG && tag[TYPE] !== UPDATABLE) {
+    throw new Error('Attempted to update a tag that was not updatable');
+  }
+  const t = tag as unknown as UpdatableInternals;
+  if (sub === CONSTANT_TAG) {
+    t.buffer = null;
+    t.sub(null);
+  } else {
+    t.buffer = sub[COMPUTE]();
+    t.sub(sub);
   }
 }
+export const UPDATE_TAG = updateTag;
 
-export const VOLATILE_TAG = new VolatileTag();
-
-//////////
-
-export class CurrentTag implements Tag {
-  readonly [TYPE] = CURRENT_TAG_ID;
-  [COMPUTE](): Revision {
-    return tick();
+export function dirtyTag(tag: DirtyableTag | UpdatableTag, skipAssertion?: boolean): void {
+  if (DEBUG && tag[TYPE] !== UPDATABLE && tag[TYPE] !== DIRTYABLE) {
+    throw new Error('Attempted to dirty a tag that was not dirtyable');
   }
+  if (DEBUG && skipAssertion !== true) {
+    unwrap(debug.assertTagNotConsumed)(tag);
+  }
+  (tag as unknown as UpdatableInternals).own(advance());
+  scheduleRevalidate();
 }
-
-export const CURRENT_TAG = new CurrentTag();
+export const DIRTY_TAG = dirtyTag;

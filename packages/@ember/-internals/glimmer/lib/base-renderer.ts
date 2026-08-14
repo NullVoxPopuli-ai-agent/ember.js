@@ -37,6 +37,8 @@ import {
   _setDestroyQueueObserver,
 } from './environment';
 import ResolverImpl from './resolver';
+import { getOnerror } from '@ember/-internals/error-handling';
+import { _setMicrotaskErrorHandler } from '@ember/-internals/utils/lib/microtask-scheduling';
 import schedulerStrategy from '@ember/scheduler/strategy';
 import { EvaluationContextImpl } from '@glimmer/opcode-compiler/lib/program-context';
 
@@ -221,6 +223,7 @@ schedulerStrategy._setTickRequester(() => {
 interface RenderSettledDeferred {
   promise: Promise<void>;
   resolve: () => void;
+  reject: (error: unknown) => void;
 }
 
 let renderSettledDeferred: RenderSettledDeferred | null = null;
@@ -235,10 +238,20 @@ let renderSettledDeferred: RenderSettledDeferred | null = null;
   @returns {Promise<void>} a promise which fulfills when rendering has settled
 */
 export function renderSettled() {
+  if (pendingRenderError !== null) {
+    let { error } = pendingRenderError;
+    pendingRenderError = null;
+    return Promise.reject(error);
+  }
+
   if (renderSettledDeferred === null) {
     let resolve!: () => void;
-    let promise = new Promise<void>((r) => (resolve = r));
-    renderSettledDeferred = { promise, resolve };
+    let reject!: (error: unknown) => void;
+    let promise = new Promise<void>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    renderSettledDeferred = { promise, resolve, reject };
     // Resolution belongs to the end of a scheduler flush -- classic
     // resolved at the end of the next runloop flush, whose render queue
     // had already run. Request a tick (a no-op revalidation when
@@ -270,6 +283,44 @@ function resolveRenderPromiseIfSettled() {
   renderSettledDeferred = null;
   resolve();
 }
+
+/**
+ * A render error nobody was awaiting yet. `visit()` and the test helpers
+ * reach rendering through `renderSettled`, but they ask for it *after*
+ * the work that renders -- a transition resolves, and only then is
+ * settledness awaited. Holding the error until the next asker is what
+ * lets it come out of the promise that represents the render, instead of
+ * as a global error the caller never sees. Cleared on delivery.
+ */
+let pendingRenderError: { error: unknown } | null = null;
+
+/**
+ * Gives a render error exactly one owner, preferring the most specific:
+ * a caller already awaiting settledness, then the app's `Ember.onerror`,
+ * and otherwise the next caller to ask about settledness.
+ */
+function reportRenderError(error: unknown): void {
+  if (renderSettledDeferred !== null) {
+    let reject = renderSettledDeferred.reject;
+    renderSettledDeferred = null;
+    reject(error);
+    return;
+  }
+
+  let onerror = getOnerror();
+
+  if (onerror) {
+    onerror(error);
+    return;
+  }
+
+  pendingRenderError = { error };
+}
+
+// Scheduled framework work renders synchronously -- `_setOutlets`
+// appends the top-level view -- so a throw from it is a render error and
+// gets the same owner a failed tick's error gets.
+_setMicrotaskErrorHandler(reportRenderError);
 
 type Resolver = ClassicResolver;
 
@@ -469,6 +520,31 @@ export class RendererState {
    */
   #settleRounds = 0;
 
+  /**
+   * Closes out a tick whose render threw. The clock's own bookkeeping has
+   * to complete or nothing renders again: `#flushScheduled` gates
+   * `scheduleRevalidate`, and the settledness observer's quiet edge and
+   * the destroy queues both hang off the end of a tick.
+   */
+  #endFailedTick(): void {
+    this.#flushScheduled = false;
+    this.#settleRounds = 0;
+
+    this.#microtaskWindow = true;
+    queueMicrotask(this.#closeMicrotaskWindow);
+
+    // The failed tick consumed the state it saw. Leaving the revision
+    // behind would keep this renderer invalid forever: settledness would
+    // never reach its quiet edge, and every later tick would retry the
+    // same failing render. Fresh dirt bumps CURRENT_TAG and schedules a
+    // new attempt, so a recoverable failure still recovers.
+    this.#lastRevision = valueForTag(CURRENT_TAG);
+
+    _drainScheduledDestroys();
+    _resetInvalidationNotified();
+    sampleSettledState();
+  }
+
   #flush(viaFrame: boolean): void {
     if (!this.#flushScheduled) return;
 
@@ -502,7 +578,22 @@ export class RendererState {
     // snapshot rather than arming machinery, and clears before the
     // destroy drain, whose destructors may dirty state that genuinely
     // belongs to the next tick.
-    this.revalidate(renderer);
+    //
+    // A throw here is the app's, not the clock's: the tick still has to
+    // end. Without this the flag below stays set and `scheduleRevalidate`
+    // early-returns forever (no further render ever happens), the destroy
+    // queues never drain, and everything awaiting settledness -- the
+    // `renderSettled` deferred and the settledness observer's pending
+    // edge -- is stranded. Errors reach the app the way the runloop
+    // delivered them: `Ember.onerror` when set, otherwise thrown.
+    try {
+      this.revalidate(renderer);
+    } catch (error) {
+      this.#endFailedTick();
+      reportRenderError(error);
+
+      return;
+    }
 
     this.#flushScheduled = false;
 

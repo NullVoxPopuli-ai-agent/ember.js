@@ -1,5 +1,5 @@
 import Service, { service } from '@ember/service';
-import { Component } from '@ember/-internals/glimmer';
+import Component from '@glimmer/component';
 import Route from '@ember/routing/route';
 import NoneLocation from '@ember/routing/none-location';
 import Controller from '@ember/controller';
@@ -110,8 +110,8 @@ moduleFor(
           class extends Component {
             @service('router')
             routerService;
-            init() {
-              super.init();
+            constructor(owner, args) {
+              super(owner, args);
               componentInstance = this;
             }
             @action
@@ -124,7 +124,7 @@ moduleFor(
 
       return this.visit('/').then(() => {
         run(function () {
-          componentInstance.send('transitionToSister');
+          componentInstance.transitionToSister();
         });
 
         assert.equal(this.routerService.get('currentRouteName'), 'parent.sister');
@@ -145,8 +145,8 @@ moduleFor(
           class extends Component {
             @service('router')
             routerService;
-            init() {
-              super.init();
+            constructor(owner, args) {
+              super(owner, args);
               componentInstance = this;
             }
             @action
@@ -159,7 +159,7 @@ moduleFor(
 
       return this.visit('/').then(() => {
         run(function () {
-          componentInstance.send('transitionToSister');
+          componentInstance.transitionToSister();
         });
 
         assert.equal(this.routerService.get('currentRouteName'), 'parent.sister');
@@ -182,8 +182,8 @@ moduleFor(
           class extends Component {
             @service('router')
             routerService;
-            init() {
-              super.init();
+            constructor(owner, args) {
+              super(owner, args);
               componentInstance = this;
             }
             @action
@@ -197,7 +197,7 @@ moduleFor(
       await this.visit('/');
 
       run(function () {
-        componentInstance.send('transitionToDynamic');
+        componentInstance.transitionToDynamic();
       });
 
       assert.equal(this.routerService.get('currentRouteName'), 'dynamic');
@@ -230,8 +230,8 @@ moduleFor(
           class extends Component {
             @service('router')
             routerService;
-            init() {
-              super.init();
+            constructor(owner, args) {
+              super(owner, args);
               componentInstance = this;
             }
             @action
@@ -245,7 +245,7 @@ moduleFor(
       await this.visit('/');
 
       run(function () {
-        componentInstance.send('transitionToDynamic');
+        componentInstance.transitionToDynamic();
       });
 
       assert.equal(this.routerService.get('currentRouteName'), 'dynamic');

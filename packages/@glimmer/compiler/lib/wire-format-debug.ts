@@ -20,7 +20,7 @@ export default class WireFormatDebugger {
   private upvars: string[];
   private symbols: string[];
 
-  constructor([_statements, symbols, upvars]: SerializedTemplateBlock) {
+  constructor([_statements, symbols = [], upvars = []]: SerializedTemplateBlock) {
     this.upvars = upvars;
     this.symbols = symbols;
   }
@@ -99,12 +99,6 @@ export default class WireFormatDebugger {
 
         case Op.Yield:
           return ['yield', opcode[1], this.formatParams(opcode[2])];
-
-        case Op.DynamicArg:
-          return ['dynamic-arg', opcode[1], this.formatOpcode(opcode[2])];
-
-        case Op.StaticArg:
-          return ['static-arg', opcode[1], this.formatOpcode(opcode[2])];
 
         case Op.TrustingDynamicAttr:
           return [
@@ -296,7 +290,7 @@ export default class WireFormatDebugger {
   private formatBlock(block: SerializedInlineBlock): object {
     return {
       statements: block[0].map((s) => this.formatOpcode(s)),
-      parameters: block[1],
+      parameters: block[1] ?? [],
     };
   }
 }

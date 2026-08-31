@@ -2,6 +2,7 @@
   "name": "@glimmer/opcode-compiler",
   "version": "0.94.10",
   "license": "MIT",
+  "private": true,
   "repository": {
     "type": "git",
     "url": "git+https://github.com/glimmerjs/glimmer-vm.git",
@@ -41,7 +42,8 @@
     "@glimmer/manager": "workspace:*",
     "@glimmer/util": "workspace:*",
     "@glimmer/vm": "workspace:*",
-    "@glimmer/wire-format": "workspace:*"
+    "@glimmer/wire-format": "workspace:*",
+    "@glimmer/runtime": "workspace:*"
   },
   "devDependencies": {
     "@glimmer/constants": "workspace:*",

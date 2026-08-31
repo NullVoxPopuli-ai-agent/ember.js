@@ -1,24 +1,24 @@
-import type { InternalOwner } from '@ember/-internals/owner';
+import type { HelperDefinitionState } from '@glimmer/interfaces';
+
+/**
+ * Name tables for templates that resolve at runtime: JSON blocks from
+ * addons published before importable opcodes, and templates compiled in
+ * the browser. `ensureBuiltins()` in `./builtins` fills them, so an app
+ * whose templates all bind their imports never loads the helpers behind
+ * them.
+ */
+export const BUILTIN_HELPERS: Record<string, object> = {};
+export const BUILTIN_MODIFIERS: Record<string, object> = {};
+
+export type { HelperDefinitionState };
+
 import type {
   ClassicResolver,
-  HelperDefinitionState,
   ModifierDefinitionState,
   Nullable,
   ResolvedComponentDefinition,
 } from '@glimmer/interfaces';
-
-/**
- * The helpers and modifiers a template can reach by name. Empty until
- * `ensureBuiltins()` in `./builtins` fills it. Only code paths that
- * resolve by name (loose mode templates, JSON blocks, the classic
- * renderer) call that, so a strict app never loads the helpers behind it.
- */
-export const BUILTIN_KEYWORD_HELPERS: Record<string, object> = {};
-export const BUILTIN_HELPERS: Record<string, object> = {};
-export const BUILTIN_KEYWORD_MODIFIERS: Record<string, ModifierDefinitionState> = {};
-export const BUILTIN_MODIFIERS: Record<string, object> = {};
-
-export type { HelperDefinitionState };
+import type { InternalOwner } from '@ember/-internals/owner';
 
 let resolver: ClassicResolver<InternalOwner> | null = null;
 
@@ -27,9 +27,10 @@ export function registerResolver(impl: ClassicResolver<InternalOwner>): void {
 }
 
 /**
- * The resolver the strict render path starts with. Every lookup returns
- * `null` until `ensureBuiltins()` registers the real one, so an app that
- * loads no loose mode template does not carry `ResolverImpl`.
+ * The resolver a renderer starts with when it has no router. It delegates
+ * to the classic resolver once a code path that resolves by name loads
+ * one, so `renderComponent` can render a loose template without carrying
+ * the resolver when no such template exists.
  */
 export class LazyResolver implements ClassicResolver<InternalOwner> {
   lookupPartial(): null {
@@ -46,13 +47,5 @@ export class LazyResolver implements ClassicResolver<InternalOwner> {
 
   lookupComponent(name: string, owner: InternalOwner): Nullable<ResolvedComponentDefinition> {
     return resolver?.lookupComponent?.(name, owner) ?? null;
-  }
-
-  lookupBuiltInHelper(name: string): Nullable<HelperDefinitionState> {
-    return resolver?.lookupBuiltInHelper?.(name) ?? null;
-  }
-
-  lookupBuiltInModifier(name: string): Nullable<ModifierDefinitionState> {
-    return resolver?.lookupBuiltInModifier?.(name) ?? null;
   }
 }

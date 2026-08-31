@@ -69,33 +69,22 @@ QUnit.test('strict mode with lexical scope', (assert) => {
   assert.deepEqual(result.scope(), { Foo: 'foo', bar: 'bar', baz: 'baz' });
 });
 
-QUnit.test('strict keywords become lexical imports', (assert) => {
-  let source = '{{mut this.value}}';
-  let options = {
-    strictMode: true,
-    keywords: ['mut'],
-    lexicalScope: () => false,
-    lexicalKeywords: { mut: { module: '@app/keywords', name: 'mut' } },
+QUnit.test('with jsutils, imports bind through the build tool', (assert) => {
+  let bound: string[] = [];
+  let jsutils = {
+    bindImport(module: string, name: string, target: null, opts?: { nameHint?: string }) {
+      assert.strictEqual(target, null, 'a generated reference has no shadow target');
+      bound.push(`${module}#${name}`);
+      return `${opts?.nameHint ?? name}0`;
+    },
   };
-  let { imports, expression } = precompileModule(source, options);
-  let keyword = imports.find((imp) => imp.module === '@app/keywords');
 
-  assert.ok(keyword, 'the keyword is imported');
-  assert.strictEqual(keyword?.name, 'mut');
+  let { imports, expression } = precompileModule('hi ', {
+    strictMode: false,
+    meta: { jsutils },
+  });
 
-  let MUT = {};
-  let evaluate = new Function(...imports.map((imp) => imp.local), `return (${expression});`) as (
-    ...args: unknown[]
-  ) => { block: SerializedTemplateBlock; scope: () => object };
-  let result = evaluate(...imports.map((imp) => (imp.id === -1 ? MUT : imp.id)));
-
-  let scope = result.scope();
-  let slot = Object.values(scope).indexOf(MUT);
-
-  assert.ok(slot >= 0, 'the keyword has a scope slot');
-  assert.true(
-    JSON.stringify(result.block).includes(`[32,${slot}]`),
-    'GetLexicalSymbol points at the slot'
-  );
-  assert.false(JSON.stringify(result.block).includes('[31,'), 'no GetStrictKeyword remains');
+  assert.strictEqual(imports.length, 0, 'nothing is left for the caller to bind');
+  assert.true(bound.includes('@glimmer/opcode-compiler/ops#AppendStatic'), 'the sexp op is bound');
+  assert.true(expression.includes('__wf_AppendStatic0'), 'the expression uses the returned name');
 });

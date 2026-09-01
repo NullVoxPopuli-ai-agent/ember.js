@@ -46,6 +46,13 @@ export function printBlock(
         return `[${LIST},${lit(entry.value)}]`;
       case 'ref':
         return `[${SCOPE},${entry.ref.index}]`;
+      case 'js': {
+        let source = entry.source;
+        for (const imp of entry.imports) {
+          source = source.split(imp.local).join(bind(imp.local, imp.module, imp.name));
+        }
+        return `[${VALUE},${source}]`;
+      }
       case 'block':
         return `[${BLOCK},${entry.program},${lit(entry.parameters)}]`;
     }

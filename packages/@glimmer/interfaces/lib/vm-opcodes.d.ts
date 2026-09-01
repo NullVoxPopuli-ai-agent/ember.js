@@ -109,7 +109,8 @@ export type VmIfInline = 109;
 export type VmNot = 110;
 export type VmGetDynamicVar = 111;
 export type VmLog = 112;
-export type VmSize = 113;
+export type VmClosure = 113;
+export type VmSize = 114;
 
 export type VmOp =
   | VmHelper
@@ -198,6 +199,7 @@ export type VmOp =
   | VmStaticComponentAttr
   | VmDynamicContentType
   | VmDynamicHelper
+  | VmClosure
   | VmDynamicModifier
   | VmIfInline
   | VmNot

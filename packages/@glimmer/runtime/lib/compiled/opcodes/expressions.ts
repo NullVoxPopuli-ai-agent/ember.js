@@ -1,5 +1,8 @@
 import { DEBUG } from '@glimmer/env';
 import type {
+  DynamicScope,
+  Owner,
+  Scope,
   CapturedPositionalArguments,
   CurriedType,
   Helper,
@@ -28,6 +31,7 @@ import {
   VM_SET_BLOCK_OP,
   VM_SET_VARIABLE_OP,
   VM_SPREAD_BLOCK_OP,
+  VM_CLOSURE_OP,
 } from '@glimmer/constants/lib/syscall-ops';
 import {
   check,
@@ -333,4 +337,29 @@ export const LOG_OP = /*#__PURE__*/ syscall(VM_LOG_OP, (vm) => {
       console.log(...reifyPositional(positional));
     })
   );
+});
+
+/** What a compiled expression closure receives: the frame it reads from. */
+export interface ClosureContext {
+  scope: Scope;
+  owner: Owner;
+  dynamicScope: DynamicScope;
+}
+
+export type ExpressionClosure = (context: ClosureContext) => Reference;
+
+/**
+ * Pushes the reference an ahead-of-time compiled expression closure builds.
+ * The closure reads `this`, block params, and named args from the frame;
+ * everything else it references is a module binding.
+ */
+export const CLOSURE_OP = /*#__PURE__*/ syscall(VM_CLOSURE_OP, (vm, { op1: handle }) => {
+  let closure = vm.constants.getValue<ExpressionClosure>(decodeHandle(handle));
+  let ref = closure({ scope: vm.scope(), owner: vm.getOwner(), dynamicScope: vm.dynamicScope() });
+
+  if (_hasDestroyableChildren(ref)) {
+    vm.associateDestroyable(ref);
+  }
+
+  vm.stack.push(ref);
 });

@@ -66,7 +66,9 @@ export function precompileAot(source: string, options: PrecompileAotOptions): Pr
     `isStrictMode:true`,
   ];
 
-  if (scopeEntries.length > 0) {
+  // Closures reach lexical values directly, so `scope` only ships when a
+  // constant still refers to it by position.
+  if (scopeEntries.length > 0 && constants.entries.some((entry) => entry.kind === 'ref')) {
     fields.push(`scope:()=>({${scopeEntries.join(',')}})`);
   }
 

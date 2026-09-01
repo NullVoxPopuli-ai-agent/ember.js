@@ -23,7 +23,11 @@ import { ARG_SHIFT, MACHINE_MASK, OPERAND_LEN_MASK, TYPE_MASK } from '@glimmer/v
 
 import type { HighLevelStatementOp, PushStatementOp } from '../syntax/compilers';
 
+import { CLOSURE_OP } from '@glimmer/runtime/lib/compiled/opcodes/expressions';
+
 import { encodeOp } from '../opcode-builder/encoder';
+import { withExpressionOverride } from '../opcode-builder/helpers/expr';
+import { closureImports, closureSource, type JsImport } from './closures';
 import { withLexicalScopeAtRuntime } from '../opcode-builder/helpers/resolution';
 import { HighLevelOperands } from '../opcode-builder/operands';
 import { compileSexp } from '../syntax/compilers';
@@ -51,6 +55,7 @@ export interface RecordedProgram {
 
 export type RecordedConstant =
   | { kind: 'value'; value: unknown }
+  | { kind: 'js'; source: string; imports: JsImport[] }
   | { kind: 'array'; value: unknown[] }
   | { kind: 'block'; program: number; parameters: number[] }
   | { kind: 'ref'; ref: AotRef };
@@ -65,6 +70,20 @@ export interface AotRef {
 }
 
 export const AOT_REF: unique symbol = Symbol('aot-ref');
+export const AOT_JS: unique symbol = Symbol('aot-js');
+
+/** A constant printed as JavaScript source: an expression closure. */
+export interface AotJsValue {
+  [AOT_JS]: string;
+}
+
+export function aotJs(source: string): AotJsValue {
+  return { [AOT_JS]: source };
+}
+
+function isAotJs(value: unknown): value is AotJsValue {
+  return typeof value === 'object' && value !== null && AOT_JS in value;
+}
 
 export interface AotRefValue {
   [AOT_REF]: AotRef;
@@ -107,7 +126,9 @@ export class RecordingConstants implements CompileTimeConstants {
 
     let entry: RecordedConstant = isAotRef(value)
       ? { kind: 'ref', ref: value[AOT_REF] }
-      : { kind: 'value', value };
+      : isAotJs(value)
+        ? { kind: 'js', source: value[AOT_JS], imports: closureImports(value[AOT_JS]) }
+        : { kind: 'value', value };
 
     let handle = HANDLE_BASE + this.entries.push(entry) - 1;
     this.index.set(value, handle);
@@ -339,7 +360,17 @@ export function recordProgram(
     encodeOp(encoder, context, meta, op as BuilderOp | HighLevelOp);
   };
 
-  withLexicalScopeAtRuntime(() => build(pushOp));
+  // A strict expression compiles to a closure over the frame when it
+  // can, so the VM needs no opcodes for reads, calls, or scope lookups.
+  withExpressionOverride(
+    (op, expression) => {
+      let source = closureSource(expression, meta);
+      if (source === null) return false;
+      op(CLOSURE_OP, aotJs(source) as unknown as SingleBuilderOperand);
+      return true;
+    },
+    () => withLexicalScopeAtRuntime(() => build(pushOp))
+  );
   encoder.commit(size);
 
   return programs.push(encoder.finish(size)) - 1;

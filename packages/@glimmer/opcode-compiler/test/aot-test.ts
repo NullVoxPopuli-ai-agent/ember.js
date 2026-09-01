@@ -4,6 +4,7 @@ import type { SimpleDocument } from '@simple-dom/interface';
 import { precompileAot } from '@glimmer/opcode-compiler/lib/aot/precompile';
 import * as aotTemplate from '@glimmer/opcode-compiler/lib/aot/template';
 import * as stdlibData from '@glimmer/opcode-compiler/lib/opcode-builder/stdlib-data';
+import * as closures from '@glimmer/runtime/lib/closures';
 import * as componentOps from '@glimmer/runtime/lib/compiled/opcodes/component';
 import * as contentOps from '@glimmer/runtime/lib/compiled/opcodes/content';
 import * as domOps from '@glimmer/runtime/lib/compiled/opcodes/dom';
@@ -21,6 +22,7 @@ QUnit.module('@glimmer/opcode-compiler - precompileAot');
 const MODULES: Record<string, Record<string, unknown>> = {
   '@glimmer/opcode-compiler/lib/aot/template': aotTemplate,
   '@glimmer/opcode-compiler/lib/opcode-builder/stdlib-data': stdlibData,
+  '@glimmer/runtime/lib/closures': closures,
   '@glimmer/runtime/lib/compiled/opcodes/component': componentOps,
   '@glimmer/runtime/lib/compiled/opcodes/content': contentOps,
   '@glimmer/runtime/lib/compiled/opcodes/dom': domOps,
@@ -95,38 +97,49 @@ QUnit.test('nested blocks become block constants that load before their parent',
   assert.strictEqual(typeof handle, 'number');
 });
 
-QUnit.test('lexical scope values are scope entries', (assert) => {
+QUnit.test('lexical scope values are module bindings inside closures', (assert) => {
   let Foo = {};
   let helper = () => 1;
   let { aot } = evaluate('<Foo @x={{helper this.y}} />', { Foo, helper });
   let constants = aot.block[3];
-  let scope = aot.scope?.() ?? {};
 
-  assert.deepEqual(
-    constants.filter((entry) => entry[0] === aotTemplate.SCOPE),
-    [
-      [aotTemplate.SCOPE, 0],
-      [aotTemplate.SCOPE, 1],
-    ],
-    'the scope entries are referenced by position'
+  assert.false(
+    constants.some((entry) => entry[0] === aotTemplate.SCOPE),
+    'nothing reads scope by position'
   );
-  assert.strictEqual(scope['Foo'], Foo, 'the component is in scope');
-  assert.strictEqual(scope['helper'], helper, 'the helper is in scope');
+  assert.strictEqual(aot.scope, undefined, 'no scope thunk ships');
+  assert.true(
+    constants.filter((entry) => typeof entry[1] === 'function').length >= 2,
+    'the component head and the helper call are closures'
+  );
 });
 
-QUnit.test('a scope value that is an array stays one constant', (assert) => {
+QUnit.test('a scope value that is an array is read through its closure', (assert) => {
   let items = [5, 7];
   let { aot } = evaluate('{{#each items as |item|}}{{item}}{{/each}}', { items });
 
-  assert.true(
-    aot.block[3].some((entry) => entry[0] === aotTemplate.SCOPE && entry[1] === 0),
-    'the array is a scope entry'
+  assert.false(
+    aot.block[3].some((entry) => entry[0] === aotTemplate.SCOPE),
+    'the array is not a scope entry'
   );
 
   let ctx = context();
-  unwrapTemplate(aotTemplate.default(aot)()).asLayout().compile(ctx);
-  let pool = ctx.program.constants;
-  let handle = pool.value(items);
+  let handle = unwrapTemplate(aotTemplate.default(aot)()).asLayout().compile(ctx);
 
-  assert.strictEqual(pool.getValue(handle), items, 'the loader interned the array as one value');
+  assert.strictEqual(typeof handle, 'number', 'the program loads');
+});
+
+QUnit.test('strict expressions compile to closures over the frame', (assert) => {
+  let double = (n: number) => n * 2;
+  let { aot } = evaluate('{{this.count}} <b class={{double this.count}}></b>', { double });
+  let closures = aot.block[3].filter(
+    (entry) => entry[0] === aotTemplate.VALUE && typeof entry[1] === 'function'
+  );
+
+  assert.strictEqual(closures.length, 2, 'the property read and the helper call are closures');
+  assert.false(
+    aot.block[3].some((entry) => entry[0] === aotTemplate.SCOPE),
+    'nothing reads scope by position'
+  );
+  assert.strictEqual(aot.scope, undefined, 'no scope thunk ships');
 });

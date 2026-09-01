@@ -295,6 +295,10 @@ export function exposedDependencies() {
       packageCache.appRoot,
       'packages/@glimmer/opcode-compiler/lib/aot/template.ts'
     ),
+    '@glimmer/runtime/lib/closures': resolve(
+      packageCache.appRoot,
+      'packages/@glimmer/runtime/lib/closures.ts'
+    ),
     '@glimmer/opcode-compiler/lib/opcode-builder/stdlib-data': resolve(
       packageCache.appRoot,
       'packages/@glimmer/opcode-compiler/lib/opcode-builder/stdlib-data.ts'

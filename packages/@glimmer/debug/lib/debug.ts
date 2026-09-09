@@ -5,12 +5,14 @@ import type {
   Nullable,
   Optional,
   Program,
+  ProgramHeap,
   RuntimeOp,
 } from '@glimmer/interfaces';
 import { exhausted, expect, unreachable } from '@glimmer/debug-util/lib/platform-utils';
 import { LOCAL_DEBUG, LOCAL_SUBTLE_LOGGING, LOCAL_TRACE_LOGGING } from '@glimmer/local-debug-flags';
 import { enumerate } from '@glimmer/util/lib/array-utils';
 import { LOCAL_LOGGER } from '@glimmer/util';
+import { ARG_SHIFT, MACHINE_MASK, OPERAND_LEN_MASK, TYPE_MASK } from '@glimmer/vm/lib/flags';
 
 import type { Primitive, RegisterName } from './dism/dism';
 import type { NormalizedOperand, OperandType, ShorthandOperand } from './dism/operand-types';
@@ -21,6 +23,23 @@ import { frag, type Fragment, as, type IntoFragment } from './render/fragment';
 import { DebugLogger } from './render/logger';
 import { SerializeBlockContext } from './dism/opcode';
 import { join } from './render/basic';
+
+/**
+ * Decode the instruction at `offset` for display. Debug-only; the interpreter
+ * decodes in wasm.
+ */
+export function readOp(heap: ProgramHeap, offset: number): RuntimeOp {
+  const raw = heap.getbyaddr(offset);
+  return {
+    offset,
+    type: (raw & TYPE_MASK) as RuntimeOp['type'],
+    size: ((raw & OPERAND_LEN_MASK) >> ARG_SHIFT) + 1,
+    isMachine: raw & MACHINE_MASK ? 1 : 0,
+    op1: heap.getbyaddr(offset + 1),
+    op2: heap.getbyaddr(offset + 2),
+    op3: heap.getbyaddr(offset + 3),
+  };
+}
 
 export function describeOp(
   op: RuntimeOp,
@@ -46,18 +65,16 @@ export function logOpcodeSlice(context: CompilationContext, start: number, end: 
     const program = context.evaluation.program;
 
     let heap = program.heap;
-    let opcode = context.evaluation.createOp(heap);
 
     let _size = 0;
     for (let i = start; i <= end; i = i + _size) {
-      opcode.offset = i;
+      const opcode = readOp(heap, i);
       const op = describeOp(opcode, program, context.meta);
 
       logger.log(frag`${i}. ${op}`);
 
       _size = opcode.size;
     }
-    opcode.offset = -_size;
     LOCAL_LOGGER.groupEnd();
   }
 }

@@ -21,7 +21,6 @@ import type {
 } from '@glimmer/interfaces';
 
 import { artifacts } from '@glimmer/program/lib/helpers';
-import { RuntimeOpImpl } from '@glimmer/program/lib/opcode';
 import { clientBuilder } from '@glimmer/runtime/lib/vm/element-builder';
 import { inTransaction, runtimeOptions } from '@glimmer/runtime/lib/environment';
 import { renderComponent as glimmerRenderComponent } from '@glimmer/runtime/lib/render';
@@ -615,11 +614,7 @@ export class BaseRenderer {
      */
     let env = new EmberEnvironmentDelegate(owner as InternalOwner, envOptions.isInteractive);
     let options = runtimeOptions({ document }, env, sharedArtifacts, resolver);
-    let context = new EvaluationContextImpl(
-      sharedArtifacts,
-      (heap) => new RuntimeOpImpl(heap),
-      options
-    );
+    let context = new EvaluationContextImpl(sharedArtifacts, options);
 
     this.state = RendererState.create(
       {

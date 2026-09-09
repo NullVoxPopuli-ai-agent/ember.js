@@ -21,7 +21,7 @@ import type { CurriedValue, EnvironmentDelegate } from '@glimmer/runtime';
 import type { ASTPluginBuilder, PrecompileOptions } from '@glimmer/syntax';
 import { castToBrowser, castToSimple, expect, unwrapTemplate } from '@glimmer/debug-util';
 import { EvaluationContextImpl } from '@glimmer/opcode-compiler';
-import { artifacts, RuntimeOpImpl } from '@glimmer/program';
+import { artifacts } from '@glimmer/program';
 import { createConstRef } from '@glimmer/reference';
 import {
   array,
@@ -70,7 +70,7 @@ export function JitDelegateContext(
     new JitCompileTimeLookup(resolver)
   );
 
-  return new EvaluationContextImpl(sharedArtifacts, (heap) => new RuntimeOpImpl(heap), runtime);
+  return new EvaluationContextImpl(sharedArtifacts, runtime);
 }
 
 export class JitRenderDelegate implements RenderDelegate {

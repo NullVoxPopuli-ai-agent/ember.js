@@ -24,6 +24,7 @@ import type {
 import type { OpaqueIterationItem, OpaqueIterator } from '@glimmer/reference/lib/iterable';
 import type { Reference } from '@glimmer/reference/lib/reference';
 import type { MachineRegister, Register, SyscallRegister } from '@glimmer/vm/lib/registers';
+import { readOp } from '@glimmer/debug/lib/debug';
 import { dev, expect } from '@glimmer/debug-util/lib/platform-utils';
 import { unwrapHandle } from '@glimmer/debug-util/lib/template';
 import { associateDestroyableChild } from '@glimmer/destroyable';
@@ -889,7 +890,7 @@ export class VM implements VmHost {
       let pc = core.pc();
       if (pc === -1) return;
 
-      let opcode = this.program.opcode(pc);
+      let opcode = readOp(this.program.heap, pc);
       let state = debugBefore(opcode);
       core.step();
       debugAfter(state);

@@ -7,16 +7,18 @@ import type { ResolvedComponentDefinition } from './serialize.js';
 import type { BlockMetadata, STDLib, Template } from './template.js';
 import type { SomeVmOp, VmMachineOp, VmOp } from './vm-opcodes.js';
 
-export type CreateRuntimeOp = (heap: ProgramHeap) => RuntimeOp;
-
+/**
+ * One decoded instruction, read from the heap for debugging. The interpreter
+ * itself decodes in wasm and never builds these.
+ */
 export interface RuntimeOp {
-  offset: number;
-  type: SomeVmOp;
-  op1: number;
-  op2: number;
-  op3: number;
-  size: number;
-  isMachine: 0 | 1;
+  readonly offset: number;
+  readonly type: SomeVmOp;
+  readonly op1: number;
+  readonly op2: number;
+  readonly op3: number;
+  readonly size: number;
+  readonly isMachine: 0 | 1;
 }
 
 export interface SerializedHeap {
@@ -133,8 +135,6 @@ export interface EvaluationContext {
    * will compile and run.
    */
   readonly resolver: Nullable<ClassicResolver>;
-  // Create a runtime op from the heap
-  readonly createOp: CreateRuntimeOp;
 }
 
 /**

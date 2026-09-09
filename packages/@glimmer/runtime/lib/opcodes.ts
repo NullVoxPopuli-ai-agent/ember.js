@@ -6,11 +6,10 @@ import type {
   Nullable,
   Optional,
   RuntimeOp,
-  SomeVmOp,
+  Syscall,
   VmMachineOp,
   VmOp,
 } from '@glimmer/interfaces';
-import { VM_SYSCALL_SIZE } from '@glimmer/constants/lib/syscall-ops';
 import { DebugLogger } from '@glimmer/debug/lib/render/logger';
 import { debugOp, describeOp, describeOpcode } from '@glimmer/debug/lib/debug';
 import { frag } from '@glimmer/debug/lib/render/fragment';
@@ -18,13 +17,12 @@ import { opcodeMetadata } from '@glimmer/debug/lib/opcode-metadata';
 import { recordStackSize } from '@glimmer/debug/lib/stack-check';
 import { VmSnapshot } from '@glimmer/debug/lib/vm/snapshot';
 import { dev, unwrap } from '@glimmer/debug-util/lib/platform-utils';
-import assert from '@glimmer/debug-util/lib/assert';
 import { LOCAL_DEBUG, LOCAL_TRACE_LOGGING } from '@glimmer/local-debug-flags';
 import { LOCAL_LOGGER } from '@glimmer/util';
+import { registerSyscall } from '@glimmer/vm/lib/core';
 import { $pc, $ra, $s0, $s1, $sp, $t0, $t1, $v0 } from '@glimmer/vm/lib/registers';
 
-import type { LowLevelVM, VM } from './vm';
-import type { Externs } from './vm/low-level';
+import type { VM } from './vm/append';
 
 export interface OpcodeJSON {
   type: number | string;
@@ -39,12 +37,7 @@ export type Operand1 = number;
 export type Operand2 = number;
 export type Operand3 = number;
 
-export type Syscall = (vm: VM, opcode: RuntimeOp) => void;
-export type MachineOpcode = (vm: LowLevelVM, opcode: RuntimeOp) => void;
-
-export type Evaluate =
-  | { syscall: true; evaluate: Syscall }
-  | { syscall: false; evaluate: MachineOpcode };
+export type VmSyscall = Syscall<VM>;
 
 export type DebugState = {
   opcode: {
@@ -59,12 +52,16 @@ export type DebugState = {
   snapshot: VmSnapshot;
 };
 
-export class AppendOpcodes {
-  // This code is intentionally putting unsafe `null`s into the array that it
-  // will intentionally overwrite before anyone can see them.
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-  private evaluateOpcode: Evaluate[] = new Array(VM_SYSCALL_SIZE).fill(null);
+export interface Externs {
+  debugBefore: (opcode: RuntimeOp) => DebugState;
+  debugAfter: (state: DebugState) => void;
+}
 
+/**
+ * Registers the syscall handlers with the interpreter, and provides the local
+ * debugging hooks that run around each instruction when `LOCAL_DEBUG` is on.
+ */
+export class AppendOpcodes {
   declare debugBefore?: (vm: DebugVmSnapshot, opcode: RuntimeOp) => DebugState;
   declare debugAfter?: (debug: DebugVmSnapshot, pre: DebugState) => void;
 
@@ -85,7 +82,7 @@ export class AppendOpcodes {
         if (LOCAL_TRACE_LOGGING) {
           const logger = DebugLogger.configured();
 
-          let pos = debug.registers[$pc] - opcode.size;
+          let pos = debug.registers[$pc];
 
           op = debugOp(debug.context.program, opcode, debug.template);
 
@@ -170,35 +167,8 @@ export class AppendOpcodes {
     }
   }
 
-  add<Name extends VmOp>(name: Name, evaluate: Syscall): void;
-  add<Name extends VmMachineOp>(name: Name, evaluate: MachineOpcode, kind: 'machine'): void;
-  add<Name extends SomeVmOp>(
-    name: Name,
-    evaluate: Syscall | MachineOpcode,
-    kind = 'syscall'
-  ): void {
-    this.evaluateOpcode[name as number] = {
-      syscall: kind !== 'machine',
-      evaluate,
-    } as Evaluate;
-  }
-
-  evaluate(vm: VM, opcode: RuntimeOp, type: number) {
-    let operation = unwrap(this.evaluateOpcode[type]);
-
-    if (operation.syscall) {
-      assert(
-        !opcode.isMachine,
-        `BUG: Mismatch between operation.syscall (${operation.syscall}) and opcode.isMachine (${opcode.isMachine}) for ${opcode.type}`
-      );
-      operation.evaluate(vm, opcode);
-    } else {
-      assert(
-        opcode.isMachine,
-        `BUG: Mismatch between operation.syscall (${operation.syscall}) and opcode.isMachine (${opcode.isMachine}) for ${opcode.type}`
-      );
-      operation.evaluate(vm.lowlevel, opcode);
-    }
+  add<Name extends VmOp>(name: Name, evaluate: VmSyscall): void {
+    registerSyscall(name, evaluate as Syscall);
   }
 }
 

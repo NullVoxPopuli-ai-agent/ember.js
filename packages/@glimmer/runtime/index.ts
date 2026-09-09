@@ -66,7 +66,6 @@ export {
   RemoteBlock,
   ResettableBlockImpl,
 } from './lib/vm/element-builder';
-export { LowLevelVM } from './lib/vm/low-level';
 export {
   isSerializationFirstNode,
   RehydrateTree,

@@ -25,7 +25,64 @@ export interface SerializedHeap {
   handle: number;
 }
 
+/**
+ * The exports of one instance of the compiled interpreter (`crates/glimmer-vm`).
+ *
+ * The instance owns the instruction heap, the handle table, the `pc` and `ra`
+ * registers, and the dispatch loop. Every method is a WebAssembly export.
+ */
+export interface VmCore {
+  heapPush(value: number): void;
+  heapGet(address: number): number;
+  heapSet(address: number, value: number): void;
+  heapSize(): number;
+
+  malloc(): number;
+  getaddr(handle: number): number;
+  entries(): number;
+
+  pc(): number;
+  ra(): number;
+  setPc(pc: number): void;
+  setRa(ra: number): void;
+  opSize(): number;
+  setOpSize(size: number): void;
+  setTrace(enabled: 0 | 1): void;
+
+  target(offset: number): number;
+  goto(offset: number): void;
+  returnTo(offset: number): void;
+  call(handle: number): void;
+  ret(): void;
+
+  fetch(): number;
+  step(): number;
+  run(): void;
+}
+
+/**
+ * What the interpreter needs from the JS side while it runs: the evaluation
+ * stack operations of the machine opcodes, and the call trace hooks.
+ */
+export interface VmHost {
+  pushFrame(ra: number): void;
+  popFrame(): number;
+  /** Pop the handle for `InvokeVirtual`; -1 when the popped value is null. */
+  invokeVirtual(): number;
+  traceCall(handle: number): void;
+  traceReturn(): void;
+}
+
+export type Syscall<Host extends VmHost = VmHost> = (
+  vm: Host,
+  op1: number,
+  op2: number,
+  op3: number
+) => void;
+
 export interface ProgramHeap {
+  readonly core: VmCore;
+
   pushRaw(value: number): void;
   pushOp(name: VmOp, op1?: number, op2?: number, op3?: number): void;
   pushMachine(name: VmMachineOp, op1?: number, op2?: number, op3?: number): void;

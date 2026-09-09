@@ -11,7 +11,7 @@ import { APPEND_OPCODES } from '../../opcodes';
 import { CheckIterator, CheckReference } from './-debug-strip';
 import { AssertFilter } from './vm';
 
-APPEND_OPCODES.add(VM_ENTER_LIST_OP, (vm, { op1: relativeStart, op2: elseTarget }) => {
+APPEND_OPCODES.add(VM_ENTER_LIST_OP, (vm, relativeStart, elseTarget) => {
   let stack = vm.stack;
   let listRef = check(stack.pop(), CheckReference);
   let keyRef = check(stack.pop(), CheckReference);
@@ -27,7 +27,7 @@ APPEND_OPCODES.add(VM_ENTER_LIST_OP, (vm, { op1: relativeStart, op2: elseTarget 
 
   if (iterator.isEmpty()) {
     // TODO: Fix this offset, should be accurate
-    vm.lowlevel.goto(elseTarget + 1);
+    vm.goto(elseTarget + 1);
   } else {
     vm.enterList(iteratorRef, relativeStart);
     vm.stack.push(iterator);
@@ -38,7 +38,7 @@ APPEND_OPCODES.add(VM_EXIT_LIST_OP, (vm) => {
   vm.exitList();
 });
 
-APPEND_OPCODES.add(VM_ITERATE_OP, (vm, { op1: breaks }) => {
+APPEND_OPCODES.add(VM_ITERATE_OP, (vm, breaks) => {
   let stack = vm.stack;
   let iterator = check(stack.peek(), CheckIterator);
   let item = iterator.next();
@@ -46,6 +46,6 @@ APPEND_OPCODES.add(VM_ITERATE_OP, (vm, { op1: breaks }) => {
   if (item !== null) {
     vm.registerItem(vm.enterItem(item));
   } else {
-    vm.lowlevel.goto(breaks);
+    vm.goto(breaks);
   }
 });

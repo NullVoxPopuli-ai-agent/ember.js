@@ -71,15 +71,15 @@ APPEND_OPCODES.add(VM_PUSH_DYNAMIC_SCOPE_OP, (vm) => vm.pushDynamicScope());
 
 APPEND_OPCODES.add(VM_POP_DYNAMIC_SCOPE_OP, (vm) => vm.popDynamicScope());
 
-APPEND_OPCODES.add(VM_CONSTANT_OP, (vm, { op1: other }) => {
+APPEND_OPCODES.add(VM_CONSTANT_OP, (vm, other) => {
   vm.stack.push(vm.constants.getValue(decodeHandle(other)));
 });
 
-APPEND_OPCODES.add(VM_CONSTANT_REFERENCE_OP, (vm, { op1: other }) => {
+APPEND_OPCODES.add(VM_CONSTANT_REFERENCE_OP, (vm, other) => {
   vm.stack.push(createConstRef(vm.constants.getValue(decodeHandle(other)), false));
 });
 
-APPEND_OPCODES.add(VM_PRIMITIVE_OP, (vm, { op1: primitive }) => {
+APPEND_OPCODES.add(VM_PRIMITIVE_OP, (vm, primitive) => {
   let stack = vm.stack;
 
   if (isHandle(primitive)) {
@@ -112,29 +112,29 @@ APPEND_OPCODES.add(VM_PRIMITIVE_REFERENCE_OP, (vm) => {
   stack.push(ref);
 });
 
-APPEND_OPCODES.add(VM_DUP_OP, (vm, { op1: register, op2: offset }) => {
+APPEND_OPCODES.add(VM_DUP_OP, (vm, register, offset) => {
   let position = check(vm.fetchValue(check(register, CheckRegister)), CheckNumber) - offset;
   vm.stack.dup(position);
 });
 
-APPEND_OPCODES.add(VM_POP_OP, (vm, { op1: count }) => {
+APPEND_OPCODES.add(VM_POP_OP, (vm, count) => {
   vm.stack.pop(count);
 });
 
-APPEND_OPCODES.add(VM_LOAD_OP, (vm, { op1: register }) => {
+APPEND_OPCODES.add(VM_LOAD_OP, (vm, register) => {
   vm.load(check(register, CheckSyscallRegister));
 });
 
-APPEND_OPCODES.add(VM_FETCH_OP, (vm, { op1: register }) => {
+APPEND_OPCODES.add(VM_FETCH_OP, (vm, register) => {
   vm.fetch(check(register, CheckSyscallRegister));
 });
 
-APPEND_OPCODES.add(VM_BIND_DYNAMIC_SCOPE_OP, (vm, { op1: _names }) => {
+APPEND_OPCODES.add(VM_BIND_DYNAMIC_SCOPE_OP, (vm, _names) => {
   let names = vm.constants.getArray<string>(_names);
   vm.bindDynamicScope(names);
 });
 
-APPEND_OPCODES.add(VM_ENTER_OP, (vm, { op1: args }) => {
+APPEND_OPCODES.add(VM_ENTER_OP, (vm, args) => {
   vm.enter(args);
 });
 
@@ -142,7 +142,7 @@ APPEND_OPCODES.add(VM_EXIT_OP, (vm) => {
   vm.exit();
 });
 
-APPEND_OPCODES.add(VM_PUSH_SYMBOL_TABLE_OP, (vm, { op1: _table }) => {
+APPEND_OPCODES.add(VM_PUSH_SYMBOL_TABLE_OP, (vm, _table) => {
   let stack = vm.stack;
   stack.push(vm.constants.getValue(_table));
 });
@@ -178,7 +178,7 @@ APPEND_OPCODES.add(VM_INVOKE_YIELD_OP, (vm) => {
       `Expected both handle and table to be null if either is null`
     );
     // To balance the pop{Frame,Scope}
-    vm.lowlevel.pushFrame();
+    vm.pushFrame(vm.ra);
     vm.pushScope(scope ?? vm.scope());
 
     return;
@@ -200,34 +200,34 @@ APPEND_OPCODES.add(VM_INVOKE_YIELD_OP, (vm) => {
     }
   }
 
-  vm.lowlevel.pushFrame();
+  vm.pushFrame(vm.ra);
   vm.pushScope(invokingScope);
 
   vm.call(handle);
 });
 
-APPEND_OPCODES.add(VM_JUMP_UNLESS_OP, (vm, { op1: target }) => {
+APPEND_OPCODES.add(VM_JUMP_UNLESS_OP, (vm, target) => {
   let reference = check(vm.stack.pop(), CheckReference);
   let value = Boolean(valueForRef(reference));
 
   if (isConstRef(reference)) {
     if (!value) {
-      vm.lowlevel.goto(target);
+      vm.goto(target);
     }
   } else {
     if (!value) {
-      vm.lowlevel.goto(target);
+      vm.goto(target);
     }
 
     vm.updateWith(new Assert(reference));
   }
 });
 
-APPEND_OPCODES.add(VM_JUMP_EQ_OP, (vm, { op1: target, op2: comparison }) => {
+APPEND_OPCODES.add(VM_JUMP_EQ_OP, (vm, target, comparison) => {
   let other = check(vm.stack.peek(), CheckNumber);
 
   if (other === comparison) {
-    vm.lowlevel.goto(target);
+    vm.goto(target);
   }
 });
 

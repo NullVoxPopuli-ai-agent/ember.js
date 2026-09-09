@@ -36,7 +36,6 @@ import {
 import { dict } from '@glimmer/util/lib/collections';
 import { EMPTY_STRING_ARRAY, emptyArray, enumerate } from '@glimmer/util/lib/array-utils';
 import { CONSTANT_TAG } from '@glimmer/validator/lib/validators';
-import { $sp } from '@glimmer/vm/lib/registers';
 
 import type { EvaluationStack } from './stack';
 
@@ -61,7 +60,7 @@ export class VMArgumentsImpl implements VMArguments {
   }
 
   empty(stack: EvaluationStack): this {
-    let base = stack.registers[$sp] + 1;
+    let base = stack.sp + 1;
 
     this.named.empty(stack, base);
     this.positional.empty(stack, base);
@@ -89,7 +88,7 @@ export class VMArgumentsImpl implements VMArguments {
 
     let named = this.named;
     let namedCount = names.length;
-    let namedBase = stack.registers[$sp] - namedCount + 1;
+    let namedBase = stack.sp - namedCount + 1;
 
     named.setup(stack, namedBase, namedCount, names, atNames);
 
@@ -130,7 +129,7 @@ export class VMArgumentsImpl implements VMArguments {
 
       positional.base += offset;
       named.base += offset;
-      stack.registers[$sp] += offset;
+      stack.sp += offset;
     }
   }
 

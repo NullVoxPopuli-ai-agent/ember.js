@@ -1,13 +1,10 @@
-import assert from '@glimmer/debug-util/lib/assert';
 import { LOCAL_DEBUG } from '@glimmer/local-debug-flags';
-import { $fp, $pc, $sp } from '@glimmer/vm/lib/registers';
-
-import type { LowLevelRegisters } from './low-level';
-
-import { initializeRegistersWithSP } from './low-level';
 
 export interface EvaluationStack {
-  readonly registers: LowLevelRegisters;
+  /** Index of the top of the stack. */
+  sp: number;
+  /** Index of the base of the current frame. */
+  fp: number;
 
   push(value: unknown): void;
   dup(position?: number): void;
@@ -23,44 +20,40 @@ export interface EvaluationStack {
   snapshot?(): unknown[];
 }
 
+/**
+ * The evaluation stack holds JS values (references, arguments, scopes), so it
+ * stays on the JS side of the interpreter. `sp` and `fp` live here too; the
+ * machine opcodes reach them through the host callbacks.
+ */
 export default class EvaluationStackImpl implements EvaluationStack {
-  static restore(snapshot: unknown[], pc: number): EvaluationStackImpl {
-    const stack = new this(snapshot.slice(), initializeRegistersWithSP(snapshot.length - 1));
-
-    assert(typeof pc === 'number', 'pc is a number');
-
-    stack.registers[$pc] = pc;
-    stack.registers[$sp] = snapshot.length - 1;
-    stack.registers[$fp] = -1;
-
-    return stack;
+  static restore(snapshot: unknown[]): EvaluationStackImpl {
+    return new this(snapshot.slice(), snapshot.length - 1);
   }
 
-  readonly registers: LowLevelRegisters;
+  sp: number;
+  fp = -1;
 
-  // fp -> sp
   constructor(
     private stack: unknown[] = [],
-    registers: LowLevelRegisters
+    sp = -1
   ) {
-    this.registers = registers;
+    this.sp = sp;
 
     if (LOCAL_DEBUG) {
       this.snapshot = () => {
-        const fpRegister = this.registers[$fp];
-        const fp = fpRegister === -1 ? 0 : fpRegister;
-        return this.stack.slice(fp, this.registers[$sp] + 1);
+        const fp = this.fp === -1 ? 0 : this.fp;
+        return this.stack.slice(fp, this.sp + 1);
       };
       Object.seal(this);
     }
   }
 
   push(value: unknown): void {
-    this.stack[++this.registers[$sp]] = value;
+    this.stack[++this.sp] = value;
   }
 
-  dup(position = this.registers[$sp]): void {
-    this.stack[++this.registers[$sp]] = this.stack[position];
+  dup(position = this.sp): void {
+    this.stack[++this.sp] = this.stack[position];
   }
 
   copy(from: number, to: number): void {
@@ -68,20 +61,20 @@ export default class EvaluationStackImpl implements EvaluationStack {
   }
 
   pop<T>(n = 1): T {
-    let top = this.stack[this.registers[$sp]] as T;
-    this.registers[$sp] -= n;
+    let top = this.stack[this.sp] as T;
+    this.sp -= n;
     return top;
   }
 
   peek<T>(offset = 0): T {
-    return this.stack[this.registers[$sp] - offset] as T;
+    return this.stack[this.sp - offset] as T;
   }
 
-  get<T>(offset: number, base = this.registers[$fp]): T {
+  get<T>(offset: number, base = this.fp): T {
     return this.stack[base + offset] as T;
   }
 
-  set(value: unknown, offset: number, base = this.registers[$fp]) {
+  set(value: unknown, offset: number, base = this.fp) {
     this.stack[base + offset] = value;
   }
 
@@ -90,7 +83,7 @@ export default class EvaluationStackImpl implements EvaluationStack {
   }
 
   capture(items: number): unknown[] {
-    let end = this.registers[$sp] + 1;
+    let end = this.sp + 1;
     let start = end - items;
     return this.stack.slice(start, end);
   }
@@ -100,12 +93,4 @@ export default class EvaluationStackImpl implements EvaluationStack {
   }
 
   declare snapshot?: (this: EvaluationStackImpl) => unknown[];
-
-  static {
-    if (LOCAL_DEBUG) {
-      EvaluationStackImpl.prototype.snapshot = function () {
-        return this.stack.slice(this.registers[$fp], this.registers[$sp] + 1);
-      };
-    }
-  }
 }

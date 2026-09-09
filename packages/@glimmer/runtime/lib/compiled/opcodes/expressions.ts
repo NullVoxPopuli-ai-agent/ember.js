@@ -70,7 +70,7 @@ import {
   CheckUndefinedReference,
 } from './-debug-strip';
 
-APPEND_OPCODES.add(VM_CURRY_OP, (vm, { op1: type, op2: _isStrict }) => {
+APPEND_OPCODES.add(VM_CURRY_OP, (vm, type, _isStrict) => {
   let stack = vm.stack;
 
   let definition = check(stack.pop(), CheckReference);
@@ -172,7 +172,7 @@ function resolveHelper(definition: HelperDefinitionState, ref: Reference): Helpe
   return helper;
 }
 
-APPEND_OPCODES.add(VM_HELPER_OP, (vm, { op1: handle }) => {
+APPEND_OPCODES.add(VM_HELPER_OP, (vm, handle) => {
   let stack = vm.stack;
   let helper = check(vm.constants.getValue(handle), CheckHelper);
   let args = check(stack.pop(), CheckArguments);
@@ -185,18 +185,18 @@ APPEND_OPCODES.add(VM_HELPER_OP, (vm, { op1: handle }) => {
   vm.loadValue($v0, value);
 });
 
-APPEND_OPCODES.add(VM_GET_VARIABLE_OP, (vm, { op1: symbol }) => {
+APPEND_OPCODES.add(VM_GET_VARIABLE_OP, (vm, symbol) => {
   let expr = vm.referenceForSymbol(symbol);
 
   vm.stack.push(expr);
 });
 
-APPEND_OPCODES.add(VM_SET_VARIABLE_OP, (vm, { op1: symbol }) => {
+APPEND_OPCODES.add(VM_SET_VARIABLE_OP, (vm, symbol) => {
   let expr = check(vm.stack.pop(), CheckReference);
   vm.scope().bindSymbol(symbol, expr);
 });
 
-APPEND_OPCODES.add(VM_SET_BLOCK_OP, (vm, { op1: symbol }) => {
+APPEND_OPCODES.add(VM_SET_BLOCK_OP, (vm, symbol) => {
   let handle = check(vm.stack.pop(), CheckCompilableBlock);
   let scope = check(vm.stack.pop(), CheckScope);
   let table = check(vm.stack.pop(), CheckBlockSymbolTable);
@@ -204,17 +204,17 @@ APPEND_OPCODES.add(VM_SET_BLOCK_OP, (vm, { op1: symbol }) => {
   vm.scope().bindBlock(symbol, [handle, scope, table]);
 });
 
-APPEND_OPCODES.add(VM_ROOT_SCOPE_OP, (vm, { op1: size }) => {
+APPEND_OPCODES.add(VM_ROOT_SCOPE_OP, (vm, size) => {
   vm.pushRootScope(size, vm.getOwner());
 });
 
-APPEND_OPCODES.add(VM_GET_PROPERTY_OP, (vm, { op1: _key }) => {
+APPEND_OPCODES.add(VM_GET_PROPERTY_OP, (vm, _key) => {
   let key = vm.constants.getValue<string>(_key);
   let expr = check(vm.stack.pop(), CheckReference);
   vm.stack.push(childRefFor(expr, key));
 });
 
-APPEND_OPCODES.add(VM_GET_BLOCK_OP, (vm, { op1: _block }) => {
+APPEND_OPCODES.add(VM_GET_BLOCK_OP, (vm, _block) => {
   let { stack } = vm;
   let block = vm.scope().getBlock(_block);
 
@@ -270,7 +270,7 @@ APPEND_OPCODES.add(VM_HAS_BLOCK_PARAMS_OP, (vm) => {
   vm.stack.push(hasBlockParams ? TRUE_REFERENCE : FALSE_REFERENCE);
 });
 
-APPEND_OPCODES.add(VM_CONCAT_OP, (vm, { op1: count }) => {
+APPEND_OPCODES.add(VM_CONCAT_OP, (vm, count) => {
   let out = new Array<Reference>(count);
 
   for (let i = count; i > 0; i--) {

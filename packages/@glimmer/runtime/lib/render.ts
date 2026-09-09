@@ -7,7 +7,6 @@ import type {
   EvaluationContext,
   Owner,
   RenderResult,
-  RichIteratorResult,
   TemplateIterator,
   TreeBuilder,
 } from '@glimmer/interfaces';
@@ -24,10 +23,6 @@ import { VM } from './vm/append';
 
 class TemplateIteratorImpl implements TemplateIterator {
   constructor(private vm: VM) {}
-  next(): RichIteratorResult<null, RenderResult> {
-    return this.vm.next();
-  }
-
   sync(): RenderResult {
     if (DEBUG) {
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- @fixme
@@ -88,7 +83,7 @@ function renderInvocation(
 
   let reified = vm.constants.component(definition, owner, undefined, '{ROOT}');
 
-  vm.lowlevel.pushFrame();
+  vm.pushFrame(-1);
 
   // Push blocks on to the stack, three stack values per block
   for (let i = 0; i < 3 * blockNames.length; i++) {

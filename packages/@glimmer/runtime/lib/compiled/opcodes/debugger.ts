@@ -76,7 +76,7 @@ class ScopeInspector {
   }
 }
 
-APPEND_OPCODES.add(VM_DEBUGGER_OP, (vm, { op1: _debugInfo }) => {
+APPEND_OPCODES.add(VM_DEBUGGER_OP, (vm, _debugInfo) => {
   let debuggerInfo = vm.constants.getValue<DebuggerInfo>(decodeHandle(_debugInfo));
   let inspector = new ScopeInspector(vm.scope(), debuggerInfo);
   callback(valueForRef(vm.getSelf()), (path) => valueForRef(inspector.get(path)));

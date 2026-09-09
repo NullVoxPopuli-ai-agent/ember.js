@@ -55,15 +55,15 @@ import { createCapturedArgs } from '../../vm/arguments';
 import { CheckArguments, CheckOperations, CheckReference } from './-debug-strip';
 import { Assert } from './vm';
 
-APPEND_OPCODES.add(VM_TEXT_OP, (vm, { op1: text }) => {
+APPEND_OPCODES.add(VM_TEXT_OP, (vm, text) => {
   vm.tree().appendText(vm.constants.getValue(text));
 });
 
-APPEND_OPCODES.add(VM_COMMENT_OP, (vm, { op1: text }) => {
+APPEND_OPCODES.add(VM_COMMENT_OP, (vm, text) => {
   vm.tree().appendComment(vm.constants.getValue(text));
 });
 
-APPEND_OPCODES.add(VM_OPEN_ELEMENT_OP, (vm, { op1: tag }) => {
+APPEND_OPCODES.add(VM_OPEN_ELEMENT_OP, (vm, tag) => {
   vm.tree().openElement(vm.constants.getValue(tag));
 });
 
@@ -150,7 +150,7 @@ APPEND_OPCODES.add(VM_CLOSE_ELEMENT_OP, (vm) => {
   }
 });
 
-APPEND_OPCODES.add(VM_MODIFIER_OP, (vm, { op1: handle }) => {
+APPEND_OPCODES.add(VM_MODIFIER_OP, (vm, handle) => {
   let args = check(vm.stack.pop(), CheckArguments);
   if (!vm.env.isInteractive) {
     return;
@@ -383,7 +383,7 @@ export class UpdateDynamicModifierOpcode implements UpdatingOpcode {
   }
 }
 
-APPEND_OPCODES.add(VM_STATIC_ATTR_OP, (vm, { op1: _name, op2: _value, op3: _namespace }) => {
+APPEND_OPCODES.add(VM_STATIC_ATTR_OP, (vm, _name, _value, _namespace) => {
   let name = vm.constants.getValue<string>(_name);
   let value = vm.constants.getValue<string>(_value);
   let namespace = _namespace ? vm.constants.getValue<string>(_namespace) : null;
@@ -391,7 +391,7 @@ APPEND_OPCODES.add(VM_STATIC_ATTR_OP, (vm, { op1: _name, op2: _value, op3: _name
   vm.tree().setStaticAttribute(name, value, namespace);
 });
 
-APPEND_OPCODES.add(VM_DYNAMIC_ATTR_OP, (vm, { op1: _name, op2: _trusting, op3: _namespace }) => {
+APPEND_OPCODES.add(VM_DYNAMIC_ATTR_OP, (vm, _name, _trusting, _namespace) => {
   let name = vm.constants.getValue<string>(_name);
   let trusting = vm.constants.getValue<boolean>(_trusting);
   let reference = check(vm.stack.pop(), CheckReference);

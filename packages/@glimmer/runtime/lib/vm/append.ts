@@ -14,11 +14,12 @@ import type {
   Program,
   ProgramConstants,
   RenderResult,
-  RichIteratorResult,
   Scope,
   SyscallRegisters,
   TreeBuilder,
   UpdatingOpcode,
+  VmCore,
+  VmHost,
 } from '@glimmer/interfaces';
 import type { OpaqueIterationItem, OpaqueIterator } from '@glimmer/reference/lib/iterable';
 import type { Reference } from '@glimmer/reference/lib/reference';
@@ -35,11 +36,11 @@ import { reverse } from '@glimmer/util/lib/array-utils';
 import { StackImpl as Stack } from '@glimmer/util/lib/collections';
 import { LOCAL_LOGGER } from '@glimmer/util';
 import { beginTrackFrame, endTrackFrame, resetTracking } from '@glimmer/validator/lib/tracking';
-import { $pc, isLowLevelRegister } from '@glimmer/vm/lib/registers';
+import { enterHost, exitHost } from '@glimmer/vm/lib/core';
+import { $fp, $pc, $ra, $sp, isLowLevelRegister } from '@glimmer/vm/lib/registers';
 
 import type { ScopeOptions } from '../scope';
 import type { AppendingBlockList } from './element-builder';
-import type { EvaluationStack } from './stack';
 import type { BlockOpcode } from './update';
 
 import {
@@ -47,10 +48,16 @@ import {
   EndTrackFrameOpcode,
   JumpIfNotModifiedOpcode,
 } from '../compiled/opcodes/vm';
+import type { Externs } from '../opcodes';
+
+// Loading the VM is what creates the demand for opcode handlers. Pull bootstrap
+// in here so consumers using deep imports still get every handler registered
+// before the interpreter runs.
+import '../bootstrap';
+
 import { externs } from '../opcodes';
 import { ScopeImpl } from '../scope';
 import { VMArgumentsImpl } from './arguments';
-import { LowLevelVM } from './low-level';
 import RenderResultImpl from './render-result';
 import EvaluationStackImpl from './stack';
 import { ListBlockOpcode, ListItemOpcode, TryOpcode } from './update';
@@ -97,6 +104,8 @@ class Stacks {
 
 type Handle = number;
 
+const MACHINE_REGISTER_PLACEHOLDERS: [null, null, null, null] = [null, null, null, null];
+
 let DebugTemplatesImpl: undefined | (new () => DebugTemplates);
 
 if (LOCAL_DEBUG) {
@@ -123,22 +132,32 @@ if (LOCAL_DEBUG) {
   };
 }
 
-export class VM {
+/**
+ * The append VM. The interpreter (`core`) runs the bytecode; this class is its
+ * host: it owns the evaluation stack, the syscall registers, the scope and
+ * updating stacks, and it answers the machine opcodes that touch the stack.
+ */
+export class VM implements VmHost {
   readonly #stacks: Stacks;
   readonly args: VMArgumentsImpl;
-  readonly lowlevel: LowLevelVM;
+  readonly core: VmCore;
+  readonly stack: EvaluationStackImpl;
+  readonly #externs: Externs | undefined;
+
+  /** The address this VM starts from; the interpreter holds `pc` while it runs. */
+  readonly #pc: number;
 
   readonly debug?: () => DebugVmSnapshot;
   readonly trace?: () => DebugVmTrace;
 
-  get stack(): EvaluationStack {
-    return this.lowlevel.stack as EvaluationStack;
-  }
-
   /* Registers */
 
   get pc(): number {
-    return this.lowlevel.fetchRegister($pc);
+    return this.core.pc();
+  }
+
+  get ra(): number {
+    return this.core.ra();
   }
 
   #registers: SyscallRegisters = [null, null, null, null, null, null, null, null, null];
@@ -204,7 +223,16 @@ export class VM {
   fetchValue<T>(register: Register): T;
   fetchValue(register: Register | MachineRegister): unknown {
     if (isLowLevelRegister(register)) {
-      return this.lowlevel.fetchRegister(register);
+      switch (register) {
+        case $pc:
+          return this.core.pc();
+        case $ra:
+          return this.core.ra();
+        case $fp:
+          return this.stack.fp;
+        case $sp:
+          return this.stack.sp;
+      }
     }
 
     return this.#registers[register];
@@ -217,17 +245,47 @@ export class VM {
         dev(this.trace).willCall(handle);
       }
 
-      this.lowlevel.call(handle);
+      this.core.call(handle);
     }
   }
 
-  // Return to the `program` address stored in $ra
-  return() {
+  // Jump to an address relative to the current instruction
+  goto(offset: number) {
+    this.core.goto(offset);
+  }
+
+  // Start a new frame and save $ra and $fp on the stack
+  pushFrame(ra: number) {
+    let { stack } = this;
+    stack.push(ra);
+    stack.push(stack.fp);
+    stack.fp = stack.sp - 1;
+  }
+
+  // Restore $sp and $fp, and hand $ra back to the interpreter
+  popFrame(): number {
+    let { stack } = this;
+    stack.sp = stack.fp - 1;
+    let ra = stack.get<number>(0);
+    stack.fp = stack.get<number>(1);
+    return ra;
+  }
+
+  invokeVirtual(): number {
+    let handle = this.stack.pop<number | null>();
+    return handle === null ? -1 : handle;
+  }
+
+  traceCall(handle: number) {
+    if (LOCAL_DEBUG) {
+      dev(this.trace).willCall(handle);
+    }
+  }
+
+  traceReturn() {
     if (LOCAL_DEBUG) {
       dev(this.trace).return();
     }
-
-    this.lowlevel.return();
   }
 
   readonly #tree: TreeBuilder;
@@ -243,15 +301,18 @@ export class VM {
       assertGlobalContextWasSet!();
     }
 
-    let evalStack = EvaluationStackImpl.restore(stack, pc);
+    let evalStack = EvaluationStackImpl.restore(stack);
 
     this.#tree = tree;
     this.context = context;
+    this.core = context.program.heap.core;
+    this.stack = evalStack;
+    this.#pc = pc;
 
     this.#stacks = new Stacks(scope, dynamicScope);
 
     this.args = new VMArgumentsImpl();
-    this.lowlevel = new LowLevelVM(evalStack, context, externs(this), evalStack.registers);
+    this.#externs = externs(this);
 
     if (LOCAL_DEBUG) {
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- @fixme
@@ -273,10 +334,13 @@ export class VM {
         template: templates.active,
         scope: this.scope().snapshot(),
         // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- @fixme
-        stack: this.lowlevel.stack.snapshot!(),
+        stack: this.stack.snapshot!(),
         registers: [
-          ...this.lowlevel.registers,
-          ...sliceTuple(this.#registers, this.lowlevel.registers),
+          this.core.pc(),
+          this.core.ra(),
+          this.stack.fp,
+          this.stack.sp,
+          ...sliceTuple(this.#registers, MACHINE_REGISTER_PLACEHOLDERS),
         ],
       });
     }
@@ -321,7 +385,7 @@ export class VM {
     return this.context.env;
   }
 
-  private captureClosure(args: number, pc = this.lowlevel.fetchRegister($pc)): ClosureState {
+  private captureClosure(args: number, pc = this.core.pc()): ClosureState {
     return {
       pc,
       scope: this.scope(),
@@ -330,7 +394,7 @@ export class VM {
     };
   }
 
-  capture(args: number, pc = this.lowlevel.fetchRegister($pc)): Closure {
+  capture(args: number, pc = this.core.pc()): Closure {
     return new Closure(this.captureClosure(args, pc), this.context);
   }
 
@@ -479,7 +543,7 @@ export class VM {
   enterList(iterableRef: Reference<OpaqueIterator>, offset: number) {
     let updating: ListItemOpcode[] = [];
 
-    let addr = this.lowlevel.target(offset);
+    let addr = this.core.target(offset);
     let state = this.capture(0, addr);
     let list = this.tree().pushBlockList(updating) as AppendingBlockList;
 
@@ -770,41 +834,66 @@ export class VM {
 
   private _execute(initialize?: (vm: this) => void): RenderResult {
     if (LOCAL_TRACE_LOGGING) {
-      LOCAL_LOGGER.log(`EXECUTING FROM ${this.lowlevel.fetchRegister($pc)}`);
+      LOCAL_LOGGER.log(`EXECUTING FROM ${this.#pc}`);
     }
 
     if (initialize) initialize(this);
 
-    let result: RichIteratorResult<null, RenderResult>;
+    this.#run();
 
-    do result = this.next();
-    while (!result.done);
+    // Unload the stack
+    this.stack.reset();
 
-    return result.value;
+    return new RenderResultImpl(
+      this.env,
+      this.popUpdating(),
+      this.#tree.popBlock(),
+      this.#stacks.drop
+    );
   }
 
-  next(): RichIteratorResult<null, RenderResult> {
-    let { env } = this;
-    let opcode = this.lowlevel.nextStatement();
-    let result: RichIteratorResult<null, RenderResult>;
-    if (opcode !== null) {
-      this.lowlevel.evaluateOuter(opcode, this);
-      result = { done: false, value: null };
-    } else {
-      // Unload the stack
-      this.stack.reset();
+  /**
+   * Run the interpreter from `#pc` until it returns to -1. The interpreter's
+   * registers are saved around the run, so a VM that executes while another
+   * one is suspended in a syscall leaves the outer VM intact.
+   */
+  #run(): void {
+    let { core } = this;
+    let previousHost = enterHost(this);
+    let previousPc = core.pc();
+    let previousRa = core.ra();
+    let previousOpSize = core.opSize();
 
-      result = {
-        done: true,
-        value: new RenderResultImpl(
-          env,
-          this.popUpdating(),
-          this.#tree.popBlock(),
-          this.#stacks.drop
-        ),
-      };
+    core.setPc(this.#pc);
+    core.setRa(-1);
+
+    try {
+      if (LOCAL_DEBUG && this.#externs) {
+        core.setTrace(1);
+        this.#step(this.#externs);
+      } else {
+        core.run();
+      }
+    } finally {
+      core.setPc(previousPc);
+      core.setRa(previousRa);
+      core.setOpSize(previousOpSize);
+      exitHost(previousHost);
     }
-    return result;
+  }
+
+  #step({ debugBefore, debugAfter }: Externs): void {
+    let { core } = this;
+
+    for (;;) {
+      let pc = core.pc();
+      if (pc === -1) return;
+
+      let opcode = this.program.opcode(pc);
+      let state = debugBefore(opcode);
+      core.step();
+      debugAfter(state);
+    }
   }
 }
 

@@ -19,6 +19,7 @@ because those hold JS values.
 node bin/build-vm-wasm.mjs
 ```
 
-The script runs `cargo build --release --target wasm32-unknown-unknown` and
+The script runs `cargo build --release --target wasm32-unknown-unknown`,
+shrinks the module with `wasm-opt -Oz` from the `binaryen` package, and
 rewrites `packages/@glimmer/vm/lib/core-wasm.ts`. The generated file is
 committed, so a JS-only checkout builds without a Rust toolchain.

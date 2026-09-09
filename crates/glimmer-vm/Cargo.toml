@@ -8,7 +8,7 @@ publish = false
 crate-type = ["cdylib"]
 
 [profile.release]
-opt-level = 3
+opt-level = "z"
 lto = true
 codegen-units = 1
 panic = "abort"

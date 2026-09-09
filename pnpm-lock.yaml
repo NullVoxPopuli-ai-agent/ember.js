@@ -142,6 +142,9 @@ importers:
       babel-plugin-ember-template-compilation:
         specifier: ^4.0.0
         version: 4.0.0
+      binaryen:
+        specifier: ^132.0.0
+        version: 132.0.0
       dag-map:
         specifier: ^2.0.2
         version: 2.0.2
@@ -6538,6 +6541,10 @@ packages:
   bin-links@3.0.3:
     resolution: {integrity: sha512-zKdnMPWEdh4F5INR07/eBrodC7QrF5JKvqskjz/ZZRXg5YSAZIbn8zGhbhUrElzHBZ2fvEQdOU59RHcTG3GiwA==}
     engines: {node: ^12.13.0 || ^14.15.0 || >=16.0.0}
+
+  binaryen@132.0.0:
+    resolution: {integrity: sha512-4Usg7yEvwO3FMso3Oov6qkOOHSod1IEv+boKkh77kTljM+eNBouqCTbqWswGzbG+vDNO/b/v2C4gfEh1WgB9Lg==}
+    hasBin: true
 
   binaryextensions@2.3.0:
     resolution: {integrity: sha512-nAihlQsYGyc5Bwq6+EsubvANYGExeJKHDO3RjnvwU042fawQTQfM3Kxn7IHUXQOz4bzfwsGYYHGSvXyW4zOGLg==}
@@ -16956,6 +16963,8 @@ snapshots:
       read-cmd-shim: 3.0.1
       rimraf: 3.0.2
       write-file-atomic: 4.0.2
+
+  binaryen@132.0.0: {}
 
   binaryextensions@2.3.0: {}
 

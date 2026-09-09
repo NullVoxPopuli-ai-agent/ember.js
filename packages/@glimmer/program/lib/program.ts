@@ -15,7 +15,7 @@ type TableSlotState = typeof ALLOCATED | typeof FREED | typeof PURGED | typeof P
 export type Placeholder = [number, () => number];
 export type StdlibPlaceholder = [number, StdLibOperand];
 
-const PAGE_SIZE = 0x100000;
+const INITIAL_SIZE = 0x4000;
 
 /**
  * The Program Heap is responsible for dynamically allocating
@@ -45,7 +45,7 @@ export class ProgramHeapImpl implements ProgramHeap {
   private handleState: TableSlotState[];
 
   constructor() {
-    this.heap = new Int32Array(PAGE_SIZE);
+    this.heap = new Int32Array(INITIAL_SIZE);
     this.handleTable = [];
     this.handleState = [];
   }
@@ -70,7 +70,7 @@ export class ProgramHeapImpl implements ProgramHeap {
     let { heap } = this;
 
     if (this.offset === this.heap.length) {
-      let newHeap = new Int32Array(heap.length + PAGE_SIZE);
+      let newHeap = new Int32Array(heap.length * 2);
       newHeap.set(heap, 0);
       this.heap = newHeap;
     }

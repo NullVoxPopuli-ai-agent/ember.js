@@ -1,4 +1,10 @@
-import type { Program, ProgramConstants, ProgramHeap, StdLibOperand } from '@glimmer/interfaces';
+import type {
+  Program,
+  ProgramConstants,
+  ProgramHeap,
+  StdLibOperand,
+  UpdatePlan,
+} from '@glimmer/interfaces';
 import { unwrap } from '@glimmer/debug-util/lib/platform-utils';
 import { LOCAL_DEBUG } from '@glimmer/local-debug-flags';
 import { MACHINE_MASK } from '@glimmer/vm/lib/flags';
@@ -41,13 +47,33 @@ export class ProgramHeapImpl implements ProgramHeap {
   offset = 0;
 
   private heap: Int32Array;
+  private slots: Int32Array;
+  private plans: UpdatePlan[];
   private handleTable: number[];
   private handleState: TableSlotState[];
 
   constructor() {
     this.heap = new Int32Array(PAGE_SIZE);
+    this.slots = new Int32Array(PAGE_SIZE).fill(-1);
+    this.plans = [];
     this.handleTable = [];
     this.handleState = [];
+  }
+
+  slotAt(address: number): number {
+    return unwrap(this.slots[address]);
+  }
+
+  setSlotAt(address: number, slot: number): void {
+    this.slots[address] = slot;
+  }
+
+  planFor(handle: number): UpdatePlan {
+    return unwrap(this.plans[handle]);
+  }
+
+  setPlan(handle: number, plan: UpdatePlan): void {
+    this.plans[handle] = plan;
   }
   entries(): number {
     return this.offset;
@@ -73,6 +99,10 @@ export class ProgramHeapImpl implements ProgramHeap {
       let newHeap = new Int32Array(heap.length + PAGE_SIZE);
       newHeap.set(heap, 0);
       this.heap = newHeap;
+
+      let newSlots = new Int32Array(heap.length + PAGE_SIZE).fill(-1);
+      newSlots.set(this.slots, 0);
+      this.slots = newSlots;
     }
   }
 

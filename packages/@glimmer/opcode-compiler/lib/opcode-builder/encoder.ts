@@ -15,10 +15,51 @@ import type {
   ProgramHeap,
   SingleBuilderOperand,
   STDLib,
+  UpdatePlan,
+  UpdatePlanKind,
 } from '@glimmer/interfaces';
 import { encodeHandle } from '@glimmer/constants/lib/immediate';
-import { isMachineOp, VM_RETURN_OP } from '@glimmer/constants/lib/vm-ops';
-import { VM_PRIMITIVE_OP } from '@glimmer/constants/lib/syscall-ops';
+import {
+  isMachineOp,
+  VM_INVOKE_STATIC_OP,
+  VM_INVOKE_VIRTUAL_OP,
+  VM_RETURN_OP,
+} from '@glimmer/constants/lib/vm-ops';
+import {
+  VM_APPEND_TEXT_OP,
+  VM_ASSERT_SAME_OP,
+  VM_BEGIN_COMPONENT_TRANSACTION_OP,
+  VM_COMMIT_COMPONENT_TRANSACTION_OP,
+  VM_CONTENT_TYPE_OP,
+  VM_CREATE_COMPONENT_OP,
+  VM_DID_RENDER_LAYOUT_OP,
+  VM_DYNAMIC_ATTR_OP,
+  VM_DYNAMIC_CONTENT_TYPE_OP,
+  VM_DYNAMIC_MODIFIER_OP,
+  VM_ENTER_LIST_OP,
+  VM_ENTER_OP,
+  VM_EXIT_LIST_OP,
+  VM_EXIT_OP,
+  VM_FLUSH_ELEMENT_OP,
+  VM_GET_COMPONENT_SELF_OP,
+  VM_INVOKE_COMPONENT_LAYOUT_OP,
+  VM_INVOKE_YIELD_OP,
+  VM_ITERATE_OP,
+  VM_JUMP_UNLESS_OP,
+  VM_MODIFIER_OP,
+  VM_PRIMITIVE_OP,
+  VM_PUSH_REMOTE_ELEMENT_OP,
+  VM_PUT_COMPONENT_OPERATIONS_OP,
+} from '@glimmer/constants/lib/syscall-ops';
+import {
+  PLAN_BLOCK,
+  PLAN_CALL,
+  PLAN_GUARD,
+  PLAN_GUARD_END,
+  PLAN_LEAF,
+  PLAN_LIST,
+  PLAN_MULTI,
+} from '@glimmer/constants/lib/update-plan';
 import { expect } from '@glimmer/debug-util/lib/platform-utils';
 import { isPresentArray } from '@glimmer/debug-util/lib/present';
 import assert from '@glimmer/debug-util/lib/assert';
@@ -85,6 +126,8 @@ export function encodeOp(
         return encoder.startLabels();
       case HighLevelBuilderOpcodes.StopLabels:
         return encoder.stopLabels();
+      case HighLevelBuilderOpcodes.EndItem:
+        return encoder.endItem();
       case HighLevelResolutionOpcodes.Component:
         return resolveComponent(resolver, constants, meta, op);
       case HighLevelResolutionOpcodes.Modifier:
@@ -127,11 +170,142 @@ export function encodeOp(
   }
 }
 
+class UpdatePlanImpl implements UpdatePlan {
+  readonly kinds: UpdatePlanKind[] = [];
+  readonly children: (UpdatePlan | null)[] = [];
+  readonly links: number[] = [];
+  size = 0;
+
+  add(kind: UpdatePlanKind, child: UpdatePlan | null = null, link = -1): number {
+    this.kinds.push(kind);
+    this.children.push(child);
+    this.links.push(link);
+    return this.size++;
+  }
+}
+
+/**
+ * Derives the update plan of a compilation unit from the instructions the
+ * encoder emits. Every instruction whose handler can record an updating opcode
+ * gets a slot; block, list, and call instructions open nested plans that the
+ * append VM mirrors with its updating stack.
+ */
+class PlanBuilder {
+  readonly root = new UpdatePlanImpl();
+  private readonly regions = new Stack<UpdatePlanImpl>();
+  private readonly items = new Stack<UpdatePlanImpl>();
+  private readonly guards: number[] = [];
+  private componentOperations = false;
+
+  constructor() {
+    this.regions.push(this.root);
+  }
+
+  private get current(): UpdatePlanImpl {
+    return expect(this.regions.current, 'bug: update plan region stack is empty');
+  }
+
+  visit(heap: ProgramHeap, type: number, address: number): void {
+    switch (type) {
+      case VM_JUMP_UNLESS_OP:
+      case VM_ASSERT_SAME_OP:
+      case VM_CONTENT_TYPE_OP:
+      case VM_DYNAMIC_CONTENT_TYPE_OP:
+      case VM_APPEND_TEXT_OP:
+      case VM_DYNAMIC_ATTR_OP:
+      case VM_CREATE_COMPONENT_OP:
+        heap.setSlotAt(address, this.current.add(PLAN_LEAF));
+        return;
+
+      case VM_PUSH_REMOTE_ELEMENT_OP:
+      case VM_MODIFIER_OP:
+      case VM_DYNAMIC_MODIFIER_OP:
+      case VM_GET_COMPONENT_SELF_OP:
+      case VM_DID_RENDER_LAYOUT_OP:
+        heap.setSlotAt(address, this.current.add(PLAN_MULTI));
+        return;
+
+      case VM_PUT_COMPONENT_OPERATIONS_OP:
+        this.componentOperations = true;
+        return;
+
+      case VM_FLUSH_ELEMENT_OP:
+        if (this.componentOperations) {
+          this.componentOperations = false;
+          heap.setSlotAt(address, this.current.add(PLAN_MULTI));
+        }
+        return;
+
+      case VM_INVOKE_STATIC_OP:
+      case VM_INVOKE_VIRTUAL_OP:
+      case VM_INVOKE_YIELD_OP:
+      case VM_INVOKE_COMPONENT_LAYOUT_OP:
+        heap.setSlotAt(address, this.current.add(PLAN_CALL));
+        return;
+
+      case VM_BEGIN_COMPONENT_TRANSACTION_OP: {
+        let index = this.current.add(PLAN_GUARD);
+        heap.setSlotAt(address, index);
+        this.guards.push(index);
+        return;
+      }
+
+      case VM_COMMIT_COMPONENT_TRANSACTION_OP: {
+        let begin = expect(this.guards.pop(), 'bug: commit without begin component transaction');
+        let plan = this.current;
+        let end = plan.add(PLAN_GUARD_END, null, begin);
+        plan.links[begin] = end;
+        heap.setSlotAt(address, end);
+        return;
+      }
+
+      case VM_ENTER_OP: {
+        let child = new UpdatePlanImpl();
+        heap.setSlotAt(address, this.current.add(PLAN_BLOCK, child));
+        this.regions.push(child);
+        return;
+      }
+
+      case VM_EXIT_OP:
+        this.regions.pop();
+        return;
+
+      case VM_ENTER_LIST_OP: {
+        let item = new UpdatePlanImpl();
+        let plan = this.current;
+        heap.setSlotAt(address, plan.add(PLAN_LEAF));
+        plan.add(PLAN_LIST, item);
+        this.items.push(item);
+        return;
+      }
+
+      case VM_ITERATE_OP:
+        this.regions.push(expect(this.items.current, 'bug: iterate outside of a list'));
+        return;
+
+      case VM_EXIT_LIST_OP:
+        this.items.pop();
+        return;
+    }
+  }
+
+  endItem(): void {
+    this.regions.pop();
+  }
+
+  finish(): UpdatePlan {
+    assert(this.regions.current === this.root, 'bug: unbalanced update plan regions');
+    assert(this.guards.length === 0, 'bug: unbalanced component transactions');
+    return this.root;
+  }
+}
+
 export class EncoderImpl implements Encoder {
   private labelsStack = new Stack<Labels>();
   private encoder: InstructionEncoder = new InstructionEncoderImpl([]);
   private errors: EncoderError[] = [];
   private handle: number;
+  private plan = new PlanBuilder();
 
   constructor(
     private heap: ProgramHeap,
@@ -139,6 +313,10 @@ export class EncoderImpl implements Encoder {
     private stdlib?: STDLib
   ) {
     this.handle = heap.malloc();
+  }
+
+  endItem(): void {
+    this.plan.endItem();
   }
 
   error(error: EncoderError): void {
@@ -151,6 +329,7 @@ export class EncoderImpl implements Encoder {
 
     this.heap.pushMachine(VM_RETURN_OP);
     this.heap.finishMalloc(handle, size);
+    this.heap.setPlan(handle, this.plan.finish());
 
     if (isPresentArray(this.errors)) {
       return { errors: this.errors, handle };
@@ -173,6 +352,7 @@ export class EncoderImpl implements Encoder {
     let machine = isMachineOp(type) ? MACHINE_MASK : 0;
     let first = type | machine | (args.length << ARG_SHIFT);
 
+    this.plan.visit(heap, type, heap.offset);
     heap.pushRaw(first);
 
     for (let i = 0; i < args.length; i++) {

@@ -53,8 +53,8 @@ import {
   UNDEFINED_REFERENCE,
   valueForRef,
 } from '@glimmer/reference/lib/reference';
-import { beginTrackFrame, consumeTag, endTrackFrame } from '@glimmer/validator/lib/tracking';
-import { CONSTANT_TAG, INITIAL, validateTag, valueForTag } from '@glimmer/validator/lib/validators';
+import { consumeTag } from '@glimmer/validator/lib/tracking';
+import { CONSTANT_TAG, INITIAL, valueForTag } from '@glimmer/validator/lib/validators';
 
 import type { UpdatingVM } from '../../vm';
 import type { VM } from '../../vm/append';
@@ -283,45 +283,19 @@ export class AssertFilter<T, U> implements UpdatingOpcode {
   }
 }
 
-export class JumpIfNotModifiedOpcode implements UpdatingOpcode {
-  private tag: Tag = CONSTANT_TAG;
-  private lastRevision: Revision = INITIAL;
-  private target?: number;
+/**
+ * The state of one component cache group. The plan walker validates the tag
+ * and skips the group's slots when nothing tracked inside it changed.
+ */
+export class Guard {
+  public tag: Tag = CONSTANT_TAG;
+  public lastRevision: Revision = INITIAL;
 
-  finalize(tag: Tag, target: number) {
-    this.target = target;
-    this.didModify(tag);
-  }
-
-  evaluate(vm: UpdatingVM) {
-    let { tag, target, lastRevision } = this;
-
-    if (!vm.alwaysRevalidate && validateTag(tag, lastRevision)) {
-      consumeTag(tag);
-      vm.goto(expect(target, 'VM BUG: Target must be set before attempting to jump'));
-    }
-  }
+  constructor(public debugLabel?: string) {}
 
   didModify(tag: Tag) {
     this.tag = tag;
     this.lastRevision = valueForTag(this.tag);
     consumeTag(tag);
-  }
-}
-
-export class BeginTrackFrameOpcode implements UpdatingOpcode {
-  constructor(private debugLabel?: string) {}
-
-  evaluate() {
-    beginTrackFrame(this.debugLabel);
-  }
-}
-
-export class EndTrackFrameOpcode implements UpdatingOpcode {
-  constructor(private target: JumpIfNotModifiedOpcode) {}
-
-  evaluate() {
-    let tag = endTrackFrame();
-    this.target.didModify(tag);
   }
 }

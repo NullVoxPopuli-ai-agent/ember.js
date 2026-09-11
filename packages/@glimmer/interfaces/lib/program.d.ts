@@ -25,7 +25,41 @@ export interface SerializedHeap {
   handle: number;
 }
 
+/**
+ * The kind of value that lives in one slot of an update plan.
+ *
+ * - `LEAF`: at most one updating opcode (a hole when the reference was constant)
+ * - `MULTI`: an array of updating opcodes, for instructions whose emission
+ *   count depends on runtime data (component attribute flushes, debug tree nodes)
+ * - `GUARD`/`GUARD_END`: a component cache group; `links` pairs them
+ * - `BLOCK`: a re-renderable block; `children` holds the block's own plan
+ * - `LIST`: an `{{#each}}` list; `children` holds the plan for one item
+ * - `CALL`: an invocation of another compiled unit; the callee's plan comes
+ *   from its handle at runtime
+ */
+export type UpdatePlanKind = 1 | 2 | 3 | 4 | 5 | 6 | 7;
+
+/**
+ * The static shape of the updating pass for one compiled unit (or one block
+ * inside it). The compiler emits one plan per handle; a render instance holds
+ * a slot array of the same length, filled in by the append pass.
+ */
+export interface UpdatePlan {
+  readonly kinds: UpdatePlanKind[];
+  readonly children: (UpdatePlan | null)[];
+  readonly links: number[];
+  readonly size: number;
+}
+
 export interface ProgramHeap {
+  /**
+   * The update-plan slot index for the instruction at `address`, or -1.
+   */
+  slotAt(address: number): number;
+  setSlotAt(address: number, slot: number): void;
+  planFor(handle: number): UpdatePlan;
+  setPlan(handle: number, plan: UpdatePlan): void;
+
   pushRaw(value: number): void;
   pushOp(name: VmOp, op1?: number, op2?: number, op3?: number): void;
   pushMachine(name: VmMachineOp, op1?: number, op2?: number, op3?: number): void;

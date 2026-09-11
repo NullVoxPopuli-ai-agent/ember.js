@@ -6,7 +6,8 @@ import type { Cursor } from '../dom/bounds.js';
 import type { EvaluationContext } from '../program.js';
 import type { BlockMetadata } from '../template.js';
 import type { DynamicScope, Scope, ScopeSlot } from './scope.js';
-import type { UpdatingBlockOpcode, UpdatingOpcode } from './vm.js';
+import type { Bounds } from '../dom/bounds.js';
+import type { UpdatePlan } from '../program.js';
 
 export type MachineRegisters = [$pc: number, $ra: number, $fp: number, $sp: number];
 
@@ -68,8 +69,8 @@ export interface DebugVmSnapshot {
 export interface DebugStacks {
   scope: Scope[];
   dynamicScope: DynamicScope[];
-  updating: UpdatingOpcode[][];
-  cache: UpdatingOpcode[];
-  list: UpdatingBlockOpcode[];
+  updating: { plan: UpdatePlan; slots: unknown[] }[];
+  cache: object[];
+  list: Bounds[];
   destroyable: object[];
 }

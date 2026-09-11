@@ -18,12 +18,14 @@ import type {
   Scope,
   SyscallRegisters,
   TreeBuilder,
-  UpdatingOpcode,
+  UpdatePlan,
 } from '@glimmer/interfaces';
 import type { OpaqueIterationItem, OpaqueIterator } from '@glimmer/reference/lib/iterable';
 import type { Reference } from '@glimmer/reference/lib/reference';
 import type { MachineRegister, Register, SyscallRegister } from '@glimmer/vm/lib/registers';
-import { dev, expect } from '@glimmer/debug-util/lib/platform-utils';
+import { PLAN_MULTI } from '@glimmer/constants/lib/update-plan';
+import assert from '@glimmer/debug-util/lib/assert';
+import { dev, expect, unwrap } from '@glimmer/debug-util/lib/platform-utils';
 import { unwrapHandle } from '@glimmer/debug-util/lib/template';
 import { associateDestroyableChild } from '@glimmer/destroyable';
 import { DESTROYABLE_META_KEY } from '@glimmer/util/lib/destroyable-key';
@@ -35,25 +37,27 @@ import { reverse } from '@glimmer/util/lib/array-utils';
 import { StackImpl as Stack } from '@glimmer/util/lib/collections';
 import { LOCAL_LOGGER } from '@glimmer/util';
 import { beginTrackFrame, endTrackFrame, resetTracking } from '@glimmer/validator/lib/tracking';
-import { $pc, isLowLevelRegister } from '@glimmer/vm/lib/registers';
+import { $pc, $ra, isLowLevelRegister } from '@glimmer/vm/lib/registers';
 
 import type { ScopeOptions } from '../scope';
 import type { AppendingBlockList } from './element-builder';
 import type { EvaluationStack } from './stack';
-import type { BlockOpcode } from './update';
+import type { BlockOpcode, UpdateInstance } from './update';
 
-import {
-  BeginTrackFrameOpcode,
-  EndTrackFrameOpcode,
-  JumpIfNotModifiedOpcode,
-} from '../compiled/opcodes/vm';
+import { Guard } from '../compiled/opcodes/vm';
 import { externs } from '../opcodes';
 import { ScopeImpl } from '../scope';
 import { VMArgumentsImpl } from './arguments';
 import { LowLevelVM } from './low-level';
 import RenderResultImpl from './render-result';
 import EvaluationStackImpl from './stack';
-import { ListBlockOpcode, ListItemOpcode, TryOpcode } from './update';
+import {
+  createInstance,
+  EMPTY_PLAN,
+  ListBlockOpcode,
+  ListItemOpcode,
+  TryOpcode,
+} from './update';
 
 /*
  * The VM's own root destroyable, on the fast path like the block opcodes.
@@ -70,8 +74,13 @@ class Stacks {
 
   readonly scope = new Stack<Scope>();
   readonly dynamicScope = new Stack<DynamicScope>();
-  readonly updating = new Stack<UpdatingOpcode[]>();
-  readonly cache = new Stack<JumpIfNotModifiedOpcode>();
+  readonly updating = new Stack<UpdateInstance>();
+  readonly cache = new Stack<Guard>();
+  /**
+   * The return address of every call that pushed an update instance, so that
+   * `Return` pops the instance only when it leaves that call.
+   */
+  readonly calls: number[] = [];
   readonly list = new Stack<ListBlockOpcode>();
   readonly destroyable = new Stack<object>();
 
@@ -217,6 +226,15 @@ export class VM {
         dev(this.trace).willCall(handle);
       }
 
+      let plan = this.program.heap.planFor(handle);
+
+      if (plan.size !== 0) {
+        let callee = createInstance(plan);
+        this.record(callee);
+        this.#stacks.updating.push(callee);
+        this.#stacks.calls.push(this.lowlevel.fetchRegister($pc));
+      }
+
       this.lowlevel.call(handle);
     }
   }
@@ -225,6 +243,13 @@ export class VM {
   return() {
     if (LOCAL_DEBUG) {
       dev(this.trace).return();
+    }
+
+    let { calls } = this.#stacks;
+
+    if (calls.length !== 0 && calls[calls.length - 1] === this.lowlevel.fetchRegister($ra)) {
+      calls.pop();
+      this.#stacks.updating.pop();
     }
 
     this.lowlevel.return();
@@ -236,7 +261,8 @@ export class VM {
   constructor(
     { scope, dynamicScope, stack, pc }: ClosureState,
     context: EvaluationContext,
-    tree: TreeBuilder
+    tree: TreeBuilder,
+    root: UpdateInstance
   ) {
     if (DEBUG) {
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- @fixme
@@ -281,7 +307,7 @@ export class VM {
       });
     }
 
-    this.pushUpdating();
+    this.#stacks.updating.push(root);
   }
 
   static initial(context: EvaluationContext, options: InitialVmState) {
@@ -296,7 +322,9 @@ export class VM {
       options.dynamicScope
     );
 
-    return new VM(state, context, options.tree);
+    let root = createInstance(context.program.heap.planFor(options.handle));
+
+    return new VM(state, context, options.tree, root);
   }
 
   compile(block: CompilableTemplate): number {
@@ -349,11 +377,9 @@ export class VM {
    * [!] push Tracking Stack
    */
   beginCacheGroup(name?: string) {
-    let opcodes = this.updating();
-    let guard = new JumpIfNotModifiedOpcode();
+    let guard = new Guard(name);
 
-    opcodes.push(guard);
-    opcodes.push(new BeginTrackFrameOpcode(name));
+    this.record(guard);
     this.#stacks.cache.push(guard);
 
     beginTrackFrame(name);
@@ -374,13 +400,10 @@ export class VM {
    * [-] consume `tag`
    */
   commitCacheGroup() {
-    let opcodes = this.updating();
     let guard = expect(this.#stacks.cache.pop(), 'VM BUG: Expected a cache group');
 
-    let tag = endTrackFrame();
-    opcodes.push(new EndTrackFrameOpcode(guard));
-
-    guard.finalize(tag, opcodes.length);
+    guard.didModify(endTrackFrame());
+    this.record(guard);
   }
 
   /**
@@ -400,12 +423,10 @@ export class VM {
    * [!] push Updating Stack <- `try.children`
    */
   enter(args: number) {
-    let updating: UpdatingOpcode[] = [];
-
     let state = this.capture(args);
     let block = this.tree().pushResettableBlock();
 
-    let tryOpcode = new TryOpcode(state, this.context, block, updating);
+    let tryOpcode = new TryOpcode(state, this.context, block, this.childPlan(0));
 
     this.didEnter(tryOpcode);
   }
@@ -446,15 +467,38 @@ export class VM {
 
     let state = this.capture(2);
     let block = this.tree().pushResettableBlock();
+    let list = this.#stacks.updating.current as ListBlockOpcode;
 
-    let opcode = new ListItemOpcode(state, this.context, block, key, memoRef, valueRef);
-    this.didEnter(opcode);
+    let opcode = new ListItemOpcode(
+      state,
+      this.context,
+      block,
+      list.itemPlan,
+      key,
+      memoRef,
+      valueRef
+    );
+
+    this.associateDestroyable(opcode);
+    this.#stacks.destroyable.push(opcode);
+    this.#stacks.updating.push(opcode);
 
     return opcode;
   }
 
   registerItem(opcode: ListItemOpcode) {
-    this.listBlock().initializeChild(opcode);
+    let list = this.listBlock();
+
+    list.children.push(opcode);
+    list.initializeChild(opcode);
+  }
+
+  /**
+   * Make `instance` the target of subsequent records. Used when a block
+   * re-renders itself from its closure.
+   */
+  pushInstance(instance: UpdateInstance): void {
+    this.#stacks.updating.push(instance);
   }
 
   /**
@@ -483,11 +527,18 @@ export class VM {
     let state = this.capture(0, addr);
     let list = this.tree().pushBlockList(updating) as AppendingBlockList;
 
-    let opcode = new ListBlockOpcode(state, this.context, list, updating, iterableRef);
+    let opcode = new ListBlockOpcode(
+      state,
+      this.context,
+      list,
+      updating,
+      this.childPlan(1),
+      iterableRef
+    );
 
     this.#stacks.list.push(opcode);
 
-    this.didEnter(opcode);
+    this.didEnter(opcode, 1);
   }
 
   /**
@@ -506,11 +557,22 @@ export class VM {
    * [!] push Updating Stack <- `opcode.children`
    *
    */
-  private didEnter(opcode: BlockOpcode) {
+  private didEnter(opcode: BlockOpcode, slotOffset = 0) {
     this.associateDestroyable(opcode);
     this.#stacks.destroyable.push(opcode);
-    this.updateWith(opcode);
-    this.pushUpdating(opcode.children);
+    this.record(opcode, slotOffset);
+    this.#stacks.updating.push(opcode);
+  }
+
+  /**
+   * The nested plan the current instruction opens: a block's own plan, or the
+   * per-item plan of a list.
+   */
+  private childPlan(slotOffset: number): UpdatePlan {
+    let instance = this.instance();
+    let slot = this.program.heap.slotAt(this.lowlevel.opAddr) + slotOffset;
+
+    return unwrap(instance.plan.children[slot]);
   }
 
   /**
@@ -528,7 +590,7 @@ export class VM {
   exit() {
     this.#stacks.destroyable.pop();
     this.#tree.popBlock();
-    this.popUpdating();
+    this.#stacks.updating.pop();
   }
 
   /**
@@ -638,36 +700,36 @@ export class VM {
   }
 
   /**
-   * ## State changes
-   *
-   * - [!] push Updating Stack
+   * Record an updating opcode into the slot the current instruction owns in the
+   * current instance. `slotOffset` selects a later slot for instructions that
+   * own more than one.
    *
    * @utility
    */
-  pushUpdating(list: UpdatingOpcode[] = []): void {
-    this.#stacks.updating.push(list);
+  record(opcode: unknown, slotOffset = 0): void {
+    let instance = this.instance();
+    let slot = this.program.heap.slotAt(this.lowlevel.opAddr) + slotOffset;
+
+    assert(slot >= slotOffset, 'BUG: the current instruction has no update-plan slot');
+
+    let { plan, slots } = instance;
+
+    if (plan.kinds[slot] === PLAN_MULTI) {
+      let list = slots[slot] as unknown[] | undefined;
+
+      if (list === undefined) {
+        slots[slot] = [opcode];
+      } else {
+        list.push(opcode);
+      }
+    } else {
+      assert(slots[slot] === undefined, 'BUG: update-plan slot recorded twice');
+      slots[slot] = opcode;
+    }
   }
 
-  /**
-   * ## State changes
-   *
-   * [!] pop Updating Stack
-   *
-   * @utility
-   */
-  popUpdating(): UpdatingOpcode[] {
-    return expect(this.#stacks.updating.pop(), "can't pop an empty stack");
-  }
-
-  /**
-   * ## State changes
-   *
-   * [!] push Updating List
-   *
-   * @utility
-   */
-  updateWith(opcode: UpdatingOpcode) {
-    this.updating().push(opcode);
+  updateWith(opcode: unknown) {
+    this.record(opcode);
   }
 
   private listBlock(): ListBlockOpcode {
@@ -686,11 +748,8 @@ export class VM {
     associateDestroyableChild(parent, child);
   }
 
-  private updating(): UpdatingOpcode[] {
-    return expect(
-      this.#stacks.updating.current,
-      'expected updating opcode on the updating opcode stack'
-    );
+  private instance(): UpdateInstance {
+    return expect(this.#stacks.updating.current, 'expected an update instance on the stack');
   }
 
   /**
@@ -798,7 +857,7 @@ export class VM {
         done: true,
         value: new RenderResultImpl(
           env,
-          this.popUpdating(),
+          expect(this.#stacks.updating.pop(), 'expected the root update instance'),
           this.#tree.popBlock(),
           this.#stacks.drop
         ),
@@ -878,8 +937,8 @@ export class Closure {
     this.context = context;
   }
 
-  evaluate(tree: TreeBuilder): VM {
-    return new VM(this.state, this.context, tree);
+  evaluate(tree: TreeBuilder, root: UpdateInstance = createInstance(EMPTY_PLAN)): VM {
+    return new VM(this.state, this.context, tree, root);
   }
 }
 

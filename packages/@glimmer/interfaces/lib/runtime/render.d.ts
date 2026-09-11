@@ -8,7 +8,7 @@ export interface ExceptionHandler {
   handleException(): void;
 }
 
-export interface RenderResult extends Bounds, ExceptionHandler {
+export interface RenderResult extends Bounds {
   readonly env: Environment;
   readonly drop: object;
 

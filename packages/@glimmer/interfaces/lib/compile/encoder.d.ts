@@ -11,10 +11,15 @@ import type * as WireFormat from './wire-format/api.js';
 export type HighLevelLabel = 1000;
 export type HighLevelStartLabels = 1001;
 export type HighLevelStopLabels = 1002;
+export type HighLevelEndItem = 1012;
 export type HighLevelStart = HighLevelLabel;
-export type HighLevelEnd = HighLevelStopLabels;
+export type HighLevelEnd = HighLevelEndItem;
 
-export type HighLevelBuilderOpcode = HighLevelLabel | HighLevelStartLabels | HighLevelStopLabels;
+export type HighLevelBuilderOpcode =
+  | HighLevelLabel
+  | HighLevelStartLabels
+  | HighLevelStopLabels
+  | HighLevelEndItem;
 
 export type HighLevelResolveModifier = 1003;
 export type HighLevelResolveComponent = 1004;
@@ -52,7 +57,14 @@ export type StopLabelsOp = [op: HighLevelStopLabels];
 
 export type LabelOp = [op: HighLevelLabel, op1: string];
 
-export type HighLevelBuilderOp = StartLabelsOp | StopLabelsOp | LabelOp;
+/**
+ * Marks the end of the per-item region of an `{{#each}}` body in the update
+ * plan. The `Exit` that closes an item is shared with the enclosing block, so
+ * the compiler needs an explicit marker.
+ */
+export type EndItemOp = [op: HighLevelEndItem];
+
+export type HighLevelBuilderOp = StartLabelsOp | StopLabelsOp | LabelOp | EndItemOp;
 
 export type ResolveModifierOp = [
   op: HighLevelResolveModifier,
@@ -145,6 +157,11 @@ export interface Encoder {
    * @param size
    */
   commit(size: number): HandleResult;
+
+  /**
+   * Close the per-item region of an `{{#each}}` body in the update plan.
+   */
+  endItem(): void;
 
   /**
    * Push a syscall into the program with up to three optional

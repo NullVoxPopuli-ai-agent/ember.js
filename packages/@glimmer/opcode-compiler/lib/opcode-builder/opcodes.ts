@@ -1,5 +1,6 @@
 import type {
   HighLevelEnd,
+  HighLevelEndItem,
   HighLevelLabel,
   HighLevelResolveComponent,
   HighLevelResolveComponentOrHelper,
@@ -27,6 +28,7 @@ export const HighLevelBuilderOpcodes = {
   Label: 1000 satisfies HighLevelLabel,
   StartLabels: 1001 satisfies HighLevelStartLabels,
   StopLabels: 1002 satisfies HighLevelStopLabels,
+  EndItem: 1012 satisfies HighLevelEndItem,
   Start: 1000 satisfies HighLevelStart,
-  End: 1002 satisfies HighLevelEnd,
+  End: 1012 satisfies HighLevelEnd,
 } as const;

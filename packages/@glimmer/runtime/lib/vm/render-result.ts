@@ -4,13 +4,13 @@ import type {
   RenderResult,
   SimpleElement,
   SimpleNode,
-  UpdatingOpcode,
 } from '@glimmer/interfaces';
-import { unreachable } from '@glimmer/debug-util/lib/platform-utils';
 import { associateDestroyableChild, registerDestructor } from '@glimmer/destroyable';
 import { DESTROYABLE_META_KEY } from '@glimmer/util/lib/destroyable-key';
 
 import { clear } from '../bounds';
+import type { UpdateInstance } from './update';
+
 import { UpdatingVM } from './update';
 
 export default class RenderResultImpl implements RenderResult {
@@ -18,7 +18,7 @@ export default class RenderResultImpl implements RenderResult {
 
   constructor(
     public env: Environment,
-    private updating: UpdatingOpcode[],
+    private root: UpdateInstance,
     private bounds: AppendingBlock,
     readonly drop: object
   ) {
@@ -27,9 +27,9 @@ export default class RenderResultImpl implements RenderResult {
   }
 
   rerender({ alwaysRevalidate = false } = { alwaysRevalidate: false }) {
-    let { env, updating } = this;
+    let { env, root } = this;
     let vm = new UpdatingVM(env, { alwaysRevalidate });
-    vm.execute(updating, this);
+    vm.execute(root);
   }
 
   parentElement(): SimpleElement {
@@ -42,9 +42,5 @@ export default class RenderResultImpl implements RenderResult {
 
   lastNode(): SimpleNode {
     return this.bounds.lastNode();
-  }
-
-  handleException() {
-    unreachable(`this should never happen`);
   }
 }

@@ -58,6 +58,8 @@ export interface Externs {
 
 export class LowLevelVM {
   public currentOpSize = 0;
+  /** The address of the instruction being evaluated. */
+  public opAddr = 0;
   readonly registers: LowLevelRegisters;
   readonly context: EvaluationContext;
 
@@ -151,6 +153,7 @@ export class LowLevelVM {
     // program counter to the next instruction prior to executing.
     let opcode = context.program.opcode(pc);
     let operationSize = (this.currentOpSize = opcode.size);
+    this.opAddr = pc;
     this.registers[$pc] += operationSize;
 
     return opcode;
@@ -184,7 +187,7 @@ export class LowLevelVM {
       case VM_POP_FRAME_OP:
         return void this.popFrame();
       case VM_INVOKE_STATIC_OP:
-        return void this.call(opcode.op1);
+        return void vm.call(opcode.op1);
       case VM_INVOKE_VIRTUAL_OP:
         return void vm.call(this.stack.pop());
       case VM_JUMP_OP:

@@ -344,6 +344,7 @@ STATEMENTS.add(SexpOpcodes.Each, (op, [, value, key, block, inverse]) =>
       op(HighLevelBuilderOpcodes.Label, 'BODY');
       InvokeStaticBlockWithStack(op, block, 2);
       op(VM_POP_OP, 2);
+      op(HighLevelBuilderOpcodes.EndItem);
       op(VM_JUMP_OP, labelOperand('FINALLY'));
       op(HighLevelBuilderOpcodes.Label, 'BREAK');
       op(VM_POP_FRAME_OP);

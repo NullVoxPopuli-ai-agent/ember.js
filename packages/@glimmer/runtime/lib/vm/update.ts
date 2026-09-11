@@ -2,42 +2,70 @@ import { DEBUG } from '@glimmer/env';
 import type {
   AppendingBlock,
   Bounds,
-  DynamicScope,
   Environment,
   EvaluationContext,
-  ExceptionHandler,
   GlimmerTreeChanges,
-  Nullable,
   ResettableBlock,
-  Scope,
   SimpleComment,
+  UpdatePlan,
   UpdatingOpcode,
   UpdatingVM as IUpdatingVM,
 } from '@glimmer/interfaces';
 import type { OpaqueIterationItem, OpaqueIterator } from '@glimmer/reference/lib/iterable';
 import type { Reference } from '@glimmer/reference/lib/reference';
+import {
+  PLAN_BLOCK,
+  PLAN_CALL,
+  PLAN_GUARD,
+  PLAN_GUARD_END,
+  PLAN_LEAF,
+  PLAN_LIST,
+  PLAN_MULTI,
+} from '@glimmer/constants/lib/update-plan';
 import { expect, unwrap } from '@glimmer/debug-util/lib/platform-utils';
 import { associateDestroyableChild, destroy, destroyChildren } from '@glimmer/destroyable';
 import { DESTROYABLE_META_KEY } from '@glimmer/util/lib/destroyable-key';
 import { LOCAL_DEBUG } from '@glimmer/local-debug-flags';
 import { updateRef, valueForRef } from '@glimmer/reference/lib/reference';
 import { logStep } from '@glimmer/util/lib/debug-steps';
-import { StackImpl as Stack } from '@glimmer/util/lib/collections';
 import { debug } from '@glimmer/validator/lib/debug';
-import { resetTracking } from '@glimmer/validator/lib/tracking';
+import {
+  beginTrackFrame,
+  consumeTag,
+  endTrackFrame,
+  resetTracking,
+} from '@glimmer/validator/lib/tracking';
+import { validateTag } from '@glimmer/validator/lib/validators';
 
 import type { Closure } from './append';
 import type { AppendingBlockList } from './element-builder';
+import type { Guard } from '../compiled/opcodes/vm';
 
 import { clear, move as moveBounds } from '../bounds';
 import { NewTreeBuilder } from './element-builder';
+
+/**
+ * One render of a compilation unit or block: the static plan plus the values
+ * the append pass recorded into its slots. A slot is `undefined` when the
+ * instruction ran but recorded nothing (a constant reference, an untaken
+ * branch, a debug-only opcode in production).
+ */
+export interface UpdateInstance {
+  readonly plan: UpdatePlan;
+  slots: unknown[];
+}
+
+export const EMPTY_PLAN: UpdatePlan = { kinds: [], children: [], links: [], size: 0 };
+
+export function createInstance(plan: UpdatePlan): UpdateInstance {
+  return { plan, slots: plan.size === 0 ? [] : new Array<unknown>(plan.size) };
+}
 
 export class UpdatingVM implements IUpdatingVM {
   public env: Environment;
   public dom: GlimmerTreeChanges;
   public alwaysRevalidate: boolean;
-
-  private frameStack: Stack<UpdatingVMFrame> = new Stack<UpdatingVMFrame>();
+  public thrown = false;
 
   constructor(env: Environment, { alwaysRevalidate = false }) {
     this.env = env;
@@ -45,13 +73,13 @@ export class UpdatingVM implements IUpdatingVM {
     this.alwaysRevalidate = alwaysRevalidate;
   }
 
-  execute(opcodes: UpdatingOpcode[], handler: ExceptionHandler) {
+  execute(root: UpdateInstance) {
     if (DEBUG) {
       let hasErrored = true;
       try {
         // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- @fixme
         debug.runInTrackingTransaction!(
-          () => this._execute(opcodes, handler),
+          () => walk(this, root.plan, root.slots),
           '- While rendering:'
         );
 
@@ -65,56 +93,94 @@ export class UpdatingVM implements IUpdatingVM {
         }
       }
     } else {
-      this._execute(opcodes, handler);
+      walk(this, root.plan, root.slots);
     }
-  }
-
-  private _execute(opcodes: UpdatingOpcode[], handler: ExceptionHandler) {
-    let { frameStack } = this;
-
-    this.try(opcodes, handler);
-
-    while (!frameStack.isEmpty()) {
-      let opcode = this.frame.nextStatement();
-
-      if (opcode === undefined) {
-        frameStack.pop();
-        continue;
-      }
-
-      opcode.evaluate(this);
-    }
-  }
-
-  private get frame() {
-    return expect(this.frameStack.current, 'bug: expected a frame');
-  }
-
-  goto(index: number) {
-    this.frame.goto(index);
-  }
-
-  try(ops: UpdatingOpcode[], handler: Nullable<ExceptionHandler>) {
-    this.frameStack.push(new UpdatingVMFrame(ops, handler));
   }
 
   throw() {
-    this.frame.handleException();
-    this.frameStack.pop();
+    this.thrown = true;
   }
 }
 
-export interface VMState {
-  readonly pc: number;
-  readonly scope: Scope;
-  readonly dynamicScope: DynamicScope;
-  readonly stack: unknown[];
+/**
+ * Run the updating pass for one instance. Returns early with `vm.thrown` set
+ * when an assertion failed; the nearest enclosing block re-renders itself.
+ */
+export function walk(vm: UpdatingVM, plan: UpdatePlan, slots: unknown[]): void {
+  let { kinds, links } = plan;
+  let openFrames = 0;
+
+  for (let i = 0; i < kinds.length; i++) {
+    let value = slots[i];
+
+    if (value === undefined) continue;
+
+    switch (kinds[i]) {
+      case PLAN_LEAF:
+        (value as UpdatingOpcode).evaluate(vm);
+        break;
+
+      case PLAN_MULTI: {
+        let opcodes = value as UpdatingOpcode[];
+        for (let j = 0; j < opcodes.length && !vm.thrown; j++) {
+          unwrap(opcodes[j]).evaluate(vm);
+        }
+        break;
+      }
+
+      case PLAN_GUARD: {
+        let guard = value as Guard;
+
+        if (!vm.alwaysRevalidate && validateTag(guard.tag, guard.lastRevision)) {
+          consumeTag(guard.tag);
+          i = unwrap(links[i]);
+        } else {
+          beginTrackFrame(guard.debugLabel);
+          openFrames++;
+        }
+        break;
+      }
+
+      case PLAN_GUARD_END:
+        openFrames--;
+        (value as Guard).didModify(endTrackFrame());
+        break;
+
+      case PLAN_BLOCK: {
+        let block = value as TryOpcode;
+        walk(vm, block.plan, block.slots);
+
+        if (vm.thrown) {
+          vm.thrown = false;
+          block.handleException();
+        }
+        break;
+      }
+
+      case PLAN_LIST:
+        (value as ListBlockOpcode).update(vm);
+        break;
+
+      case PLAN_CALL: {
+        let callee = value as UpdateInstance;
+        walk(vm, callee.plan, callee.slots);
+        break;
+      }
+    }
+
+    if (vm.thrown) {
+      // Close the tracking frames this walk opened. The guards keep their
+      // previous tag and revalidate on the next update.
+      while (openFrames-- > 0) endTrackFrame();
+      return;
+    }
+  }
 }
 
-export abstract class BlockOpcode implements UpdatingOpcode, Bounds {
+export abstract class BlockOpcode implements UpdateInstance, Bounds {
   [DESTROYABLE_META_KEY]: object | undefined;
 
-  public children: UpdatingOpcode[];
+  public slots: unknown[];
 
   protected readonly bounds: AppendingBlock;
 
@@ -122,10 +188,10 @@ export abstract class BlockOpcode implements UpdatingOpcode, Bounds {
     protected state: Closure,
     protected context: EvaluationContext,
     bounds: AppendingBlock,
-    children: UpdatingOpcode[]
+    public readonly plan: UpdatePlan
   ) {
-    this.children = children;
     this.bounds = bounds;
+    this.slots = plan.size === 0 ? [] : new Array<unknown>(plan.size);
   }
 
   parentElement() {
@@ -139,20 +205,12 @@ export abstract class BlockOpcode implements UpdatingOpcode, Bounds {
   lastNode() {
     return this.bounds.lastNode();
   }
-
-  evaluate(vm: UpdatingVM) {
-    vm.try(this.children, null);
-  }
 }
 
-export class TryOpcode extends BlockOpcode implements ExceptionHandler {
+export class TryOpcode extends BlockOpcode {
   public type = 'try';
 
   declare protected bounds: ResettableBlock; // Shadows property on base class
-
-  override evaluate(vm: UpdatingVM) {
-    vm.try(this.children, this);
-  }
 
   handleException() {
     let {
@@ -164,14 +222,11 @@ export class TryOpcode extends BlockOpcode implements ExceptionHandler {
     destroyChildren(this);
 
     let tree = NewTreeBuilder.resume(env, bounds);
+    this.slots = this.plan.size === 0 ? [] : new Array<unknown>(this.plan.size);
     let vm = state.evaluate(tree);
 
-    let children = (this.children = []);
-
-    let result = vm.execute((vm) => {
-      vm.updateWith(this);
-      vm.pushUpdating(children);
-    });
+    // The block's own `Exit` pops it again, the same way the initial render did.
+    let result = vm.execute((vm) => vm.pushInstance(this));
 
     associateDestroyableChild(this, result.drop);
   }
@@ -185,11 +240,12 @@ export class ListItemOpcode extends TryOpcode {
     state: Closure,
     context: EvaluationContext,
     bounds: ResettableBlock,
+    plan: UpdatePlan,
     public key: unknown,
     public memo: Reference,
     public value: Reference
   ) {
-    super(state, context, bounds, []);
+    super(state, context, bounds, plan);
   }
 
   shouldRemove(): boolean {
@@ -203,7 +259,7 @@ export class ListItemOpcode extends TryOpcode {
 
 export class ListBlockOpcode extends BlockOpcode {
   public type = 'list-block';
-  declare public children: ListItemOpcode[];
+  public children: ListItemOpcode[];
 
   private opcodeMap = new Map<unknown, ListItemOpcode>();
   private marker: SimpleComment | null = null;
@@ -216,9 +272,11 @@ export class ListBlockOpcode extends BlockOpcode {
     context: EvaluationContext,
     bounds: AppendingBlockList,
     children: ListItemOpcode[],
+    public readonly itemPlan: UpdatePlan,
     private iterableRef: Reference<OpaqueIterator>
   ) {
-    super(state, context, bounds, children);
+    super(state, context, bounds, EMPTY_PLAN);
+    this.children = children;
     this.lastIterator = valueForRef(iterableRef);
   }
 
@@ -227,7 +285,7 @@ export class ListBlockOpcode extends BlockOpcode {
     this.opcodeMap.set(opcode.key, opcode);
   }
 
-  override evaluate(vm: UpdatingVM) {
+  update(vm: UpdatingVM) {
     let iterator = valueForRef(this.iterableRef);
 
     if (this.lastIterator !== iterator) {
@@ -248,8 +306,17 @@ export class ListBlockOpcode extends BlockOpcode {
       this.lastIterator = iterator;
     }
 
-    // Run now-updated updating opcodes
-    super.evaluate(vm);
+    let { children } = this;
+
+    for (let i = 0; i < children.length; i++) {
+      let item = unwrap(children[i]);
+      walk(vm, item.plan, item.slots);
+
+      if (vm.thrown) {
+        vm.thrown = false;
+        item.handleException();
+      }
+    }
   }
 
   private sync(iterator: OpaqueIterator) {
@@ -364,7 +431,7 @@ export class ListBlockOpcode extends BlockOpcode {
       nextSibling,
     });
 
-    let vm = state.evaluate(elementStack);
+    let vm = state.evaluate(elementStack, this);
 
     vm.execute((vm) => {
       let opcode = vm.enterItem(item);
@@ -423,28 +490,5 @@ export class ListBlockOpcode extends BlockOpcode {
     destroy(opcode);
     clear(opcode);
     this.opcodeMap.delete(opcode.key);
-  }
-}
-
-class UpdatingVMFrame {
-  private current = 0;
-
-  constructor(
-    private ops: UpdatingOpcode[],
-    private exceptionHandler: Nullable<ExceptionHandler>
-  ) {}
-
-  goto(index: number) {
-    this.current = index;
-  }
-
-  nextStatement(): UpdatingOpcode | undefined {
-    return this.ops[this.current++];
-  }
-
-  handleException() {
-    if (this.exceptionHandler) {
-      this.exceptionHandler.handleException();
-    }
   }
 }

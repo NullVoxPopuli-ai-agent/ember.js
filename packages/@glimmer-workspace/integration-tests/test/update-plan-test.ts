@@ -127,6 +127,31 @@ class UpdatePlanTest extends RenderTest {
   }
 
   @test
+  'a counter has a modifier slot, an attribute flush slot, and a text call'() {
+    this.registerModifier(
+      'on',
+      class {
+        didInsertElement() {}
+        didUpdate() {}
+      }
+    );
+
+    this.assert.strictEqual(
+      this.planFor('<button {{on "click" this.increment}}>Count: {{this.count}}</button>'),
+      '[multi multi call]'
+    );
+
+    this.render('<button {{on "click" this.increment}}>Count: {{this.count}}</button>', {
+      count: 0,
+      increment() {},
+    });
+
+    let append = 'call[block[leaf - - - - - - - - - - - leaf]]';
+
+    this.assert.strictEqual(this.instance, `[multi(1) - ${append}]`);
+  }
+
+  @test
   'a rendered instance fills only the slots that recorded something'() {
     this.render('<div class={{this.cls}}>{{this.name}}</div>{{#if this.a}}{{this.b}}{{/if}}', {
       cls: 'x',

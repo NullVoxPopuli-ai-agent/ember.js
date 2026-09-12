@@ -145,7 +145,8 @@ class UpdatePlanTest extends RenderTest {
 
     this.rerender({ a: false });
 
-    this.assert.strictEqual(this.instance, `[leaf ${append} block[leaf]]`);
+    // The re-rendered block keeps its assertion; the body call is untaken.
+    this.assert.strictEqual(this.instance, `[leaf ${append} block[leaf -]]`);
   }
 }
 

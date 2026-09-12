@@ -24,6 +24,12 @@ export type StdlibPlaceholder = [number, StdLibOperand];
 const PAGE_SIZE = 0x100000;
 
 /**
+ * The slot table grows on demand in small pages, so an app pays for the
+ * instructions it compiled rather than for the heap's reserved size.
+ */
+const SLOT_PAGE_SIZE = 0x4000;
+
+/**
  * The Program Heap is responsible for dynamically allocating
  * memory in which we read/write the VM's instructions
  * from/to. When we malloc we pass out a VMHandle, which
@@ -47,25 +53,37 @@ export class ProgramHeapImpl implements ProgramHeap {
   offset = 0;
 
   private heap: Int32Array;
-  private slots: Int32Array;
+  private slots: Int16Array;
   private plans: UpdatePlan[];
   private handleTable: number[];
   private handleState: TableSlotState[];
 
   constructor() {
     this.heap = new Int32Array(PAGE_SIZE);
-    this.slots = new Int32Array(PAGE_SIZE).fill(-1);
+    this.slots = new Int16Array(0);
     this.plans = [];
     this.handleTable = [];
     this.handleState = [];
   }
 
   slotAt(address: number): number {
-    return unwrap(this.slots[address]);
+    let slot = this.slots[address];
+
+    return slot === undefined ? -1 : slot;
   }
 
   setSlotAt(address: number, slot: number): void {
-    this.slots[address] = slot;
+    let { slots } = this;
+
+    if (address >= slots.length) {
+      let grown = new Int16Array(
+        Math.ceil((address + 1) / SLOT_PAGE_SIZE) * SLOT_PAGE_SIZE
+      ).fill(-1);
+      grown.set(slots, 0);
+      this.slots = slots = grown;
+    }
+
+    slots[address] = slot;
   }
 
   planFor(handle: number): UpdatePlan {
@@ -99,10 +117,6 @@ export class ProgramHeapImpl implements ProgramHeap {
       let newHeap = new Int32Array(heap.length + PAGE_SIZE);
       newHeap.set(heap, 0);
       this.heap = newHeap;
-
-      let newSlots = new Int32Array(heap.length + PAGE_SIZE).fill(-1);
-      newSlots.set(this.slots, 0);
-      this.slots = newSlots;
     }
   }
 

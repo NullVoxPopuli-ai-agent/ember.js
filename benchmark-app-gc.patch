@@ -1,0 +1,31 @@
+--- /home/nvp-ai/Development/OpenSource/emberjs/ember-wt-perfbench/smoke-tests/benchmark-app/app/run-benchmark.js	2026-09-29 18:43:38.368467855 -0400
++++ benchmark-app-gc/app/run-benchmark.js	2026-09-30 17:12:46.586619915 -0400
+@@ -184,6 +184,13 @@
+ }
+ 
+ export async function runBenchmark() {
++  if (typeof globalThis.gc !== 'function') {
++    throw new Error('Run Chrome with --js-flags=--expose-gc for this benchmark variant');
++  }
++  // Every sample starts from the same heap, so garbage from loading the page
++  // cannot trigger a major GC inside one of the measured phases.
++  globalThis.gc();
++
+   // starting app
+   const app = await renderBenchmark();
+ 
+@@ -393,6 +400,14 @@
+     assertRowCount(0, 'clearItems4');
+   });
+ 
++  await waitForIdle();
++
++  // Collecting at the end charges the garbage that the run left behind to the run,
++  // in its own phase, instead of to whichever phase a major GC happens to land in.
++  await measureRender('finalGc', 'finalGcStart', 'finalGcEnd', () => {
++    globalThis.gc();
++  });
++
+   // finishing bench
+   enforcePaintEvent();
+ }

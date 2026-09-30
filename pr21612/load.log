@@ -1,0 +1,113 @@
+15:51:56 core1=99% load=6.29 17.24 14.16 others-on-core: MainThread(2.1) 
+15:52:26 core1=100% load=5.48 16.00 13.85 others-on-core: MainThread(1.2) 
+15:52:56 core1=100% load=4.41 14.75 13.50 others-on-core: 
+15:53:26 core1=100% load=3.21 13.47 13.11 others-on-core: 
+15:53:56 core1=100% load=2.96 12.42 12.77 others-on-core: 
+15:54:26 core1=100% load=3.39 11.64 12.50 others-on-core: 
+15:54:56 core1=100% load=3.74 10.94 12.24 others-on-core: 
+15:55:26 core1=100% load=3.30 10.12 11.92 others-on-core: 
+15:55:56 core1=100% load=2.73 9.33 11.60 others-on-core: 
+15:56:26 core1=100% load=2.78 8.71 11.32 others-on-core: 
+15:56:56 core1=100% load=2.28 8.02 11.01 others-on-core: 
+15:57:26 core1=100% load=1.85 7.36 10.69 others-on-core: 
+15:57:56 core1=100% load=3.75 7.32 10.58 others-on-core: 
+15:58:26 core1=100% load=3.20 6.84 10.31 others-on-core: 
+15:58:56 core1=100% load=5.87 7.12 10.29 others-on-core: ember(54.9) 
+15:59:26 core1=100% load=13.49 8.91 10.79 others-on-core: claude(1.1) claude(1.3) 
+15:59:56 core1=100% load=19.63 10.92 11.41 others-on-core: ember(40.4) 
+16:00:27 core1=100% load=21.84 12.27 11.84 others-on-core: 
+16:00:57 core1=100% load=15.78 11.73 11.67 others-on-core: 
+16:01:27 core1=100% load=12.35 11.28 11.53 others-on-core: 
+16:01:57 core1=100% load=9.77 10.73 11.33 others-on-core: 
+16:02:27 core1=100% load=7.29 10.03 11.08 others-on-core: 
+16:02:57 core1=100% load=5.12 9.24 10.78 others-on-core: 
+16:03:27 core1=100% load=4.99 8.82 10.59 others-on-core: 
+16:03:57 core1=100% load=14.38 10.66 11.14 others-on-core: 
+16:04:27 core1=100% load=11.25 10.30 11.01 others-on-core: 
+16:04:57 core1=100% load=9.81 10.01 10.89 others-on-core: 
+16:05:27 core1=100% load=7.22 9.38 10.65 others-on-core: 
+16:05:57 core1=100% load=6.39 8.95 10.47 others-on-core: 
+16:06:27 core1=100% load=4.33 8.20 10.17 others-on-core: 
+16:06:57 core1=100% load=5.08 8.00 10.04 others-on-core: 
+16:07:27 core1=100% load=4.95 7.67 9.86 others-on-core: 
+16:07:57 core1=100% load=4.23 7.24 9.65 others-on-core: 
+16:08:27 core1=100% load=4.55 7.01 9.49 others-on-core: 
+16:08:57 core1=100% load=4.52 6.77 9.33 others-on-core: 
+16:09:27 core1=100% load=4.30 6.50 9.16 others-on-core: 
+16:09:57 core1=100% load=4.05 6.23 8.98 others-on-core: 
+16:10:27 core1=100% load=5.09 6.25 8.90 others-on-core: 
+16:10:57 core1=100% load=6.35 6.45 8.88 others-on-core: 
+16:11:27 core1=100% load=5.54 6.26 8.74 others-on-core: 
+16:11:57 core1=100% load=6.41 6.39 8.71 others-on-core: 
+16:12:27 core1=100% load=4.73 5.97 8.49 others-on-core: 
+16:12:57 core1=100% load=6.85 6.42 8.57 others-on-core: 
+16:13:28 core1=100% load=8.24 6.74 8.60 others-on-core: 
+16:13:58 core1=100% load=10.27 7.38 8.76 others-on-core: 
+16:14:28 core1=100% load=11.18 7.86 8.87 others-on-core: 
+16:14:58 core1=100% load=9.60 7.78 8.81 others-on-core: 
+16:15:28 core1=100% load=7.67 7.47 8.67 others-on-core: 
+16:15:58 core1=100% load=5.57 6.98 8.47 others-on-core: 
+16:16:28 core1=100% load=4.33 6.54 8.27 others-on-core: 
+16:16:58 core1=100% load=4.12 6.29 8.14 others-on-core: 
+16:17:28 core1=100% load=3.02 5.81 7.92 others-on-core: 
+16:17:58 core1=100% load=2.99 5.52 7.75 others-on-core: 
+16:18:28 core1=100% load=3.32 5.37 7.63 others-on-core: 
+16:18:58 core1=100% load=3.33 5.19 7.50 others-on-core: 
+16:19:28 core1=100% load=2.53 4.82 7.30 others-on-core: 
+16:19:58 core1=100% load=2.64 4.61 7.15 others-on-core: 
+16:20:28 core1=100% load=3.24 4.57 7.06 others-on-core: 
+16:20:58 core1=100% load=2.72 4.32 6.89 others-on-core: 
+16:21:28 core1=100% load=2.67 4.16 6.76 others-on-core: 
+16:21:58 core1=100% load=3.04 4.12 6.67 others-on-core: 
+16:22:28 core1=100% load=3.91 4.23 6.62 others-on-core: 
+16:22:58 core1=100% load=3.37 4.06 6.49 others-on-core: 
+16:23:28 core1=100% load=3.36 3.96 6.37 others-on-core: 
+16:23:58 core1=100% load=3.94 4.02 6.31 others-on-core: 
+16:24:28 core1=100% load=4.32 4.09 6.26 others-on-core: 
+16:24:58 core1=100% load=3.76 3.99 6.16 others-on-core: 
+16:25:28 core1=100% load=3.47 3.89 6.06 others-on-core: 
+16:25:58 core1=100% load=3.14 3.75 5.94 others-on-core: 
+16:26:28 core1=100% load=3.13 3.68 5.85 others-on-core: 
+16:26:58 core1=100% load=2.81 3.57 5.74 others-on-core: 
+16:27:28 core1=100% load=3.07 3.56 5.67 others-on-core: 
+16:27:58 core1=100% load=2.93 3.47 5.57 others-on-core: 
+16:28:28 core1=100% load=3.58 3.59 5.54 others-on-core: 
+16:28:58 core1=100% load=4.76 3.83 5.56 others-on-core: 
+16:29:28 core1=100% load=3.85 3.69 5.45 others-on-core: 
+16:29:58 core1=100% load=4.19 3.77 5.42 others-on-core: 
+16:30:29 core1=100% load=10.26 5.12 5.81 others-on-core: claude(1.9) ember(38.4) 
+16:30:59 core1=100% load=21.21 8.43 6.90 others-on-core: 
+16:31:29 core1=100% load=27.43 11.09 7.83 others-on-core: cosmic-comp(20.6) cosmic-term(7.5) 
+16:31:59 core1=100% load=26.83 12.41 8.37 others-on-core: claude(1.1) 
+16:32:29 core1=100% load=25.59 13.64 8.92 others-on-core: 
+16:32:59 core1=100% load=16.07 12.48 8.68 others-on-core: 
+16:33:29 core1=100% load=12.62 11.98 8.64 others-on-core: 
+16:33:59 core1=100% load=25.71 15.05 9.76 others-on-core: 
+16:34:30 core1=100% load=26.53 16.22 10.31 others-on-core: claude(1.2) 
+16:35:00 core1=100% load=20.38 15.77 10.35 others-on-core: 
+16:35:30 core1=100% load=13.90 14.61 10.14 others-on-core: 
+16:36:00 core1=100% load=10.38 13.66 9.96 others-on-core: 
+16:36:30 core1=100% load=7.55 12.65 9.74 others-on-core: 
+16:37:00 core1=100% load=6.24 11.84 9.56 others-on-core: 
+16:37:30 core1=100% load=5.44 11.10 9.39 others-on-core: 
+16:38:00 core1=100% load=5.16 10.51 9.25 others-on-core: 
+16:38:30 core1=100% load=4.50 9.84 9.06 others-on-core: 
+16:39:00 core1=100% load=5.27 9.53 8.99 others-on-core: 
+16:39:30 core1=100% load=4.83 9.06 8.85 others-on-core: 
+16:40:00 core1=100% load=4.41 8.54 8.68 others-on-core: 
+16:40:30 core1=100% load=5.31 8.35 8.61 others-on-core: 
+16:41:00 core1=100% load=4.77 7.95 8.47 others-on-core: 
+16:41:30 core1=100% load=4.19 7.49 8.30 others-on-core: 
+16:42:00 core1=100% load=9.60 8.27 8.52 others-on-core: ember(39.2) ps(100) 
+16:42:30 core1=100% load=14.79 9.69 8.99 others-on-core: claude(1.9) 
+16:43:00 core1=100% load=21.98 12.00 9.78 others-on-core: 
+16:43:30 core1=100% load=24.15 13.54 10.37 others-on-core: claude(1.8) 
+16:44:00 core1=100% load=17.00 12.81 10.23 others-on-core: 
+16:44:30 core1=100% load=11.89 11.94 10.02 others-on-core: 
+16:45:00 core1=100% load=8.74 11.18 9.83 others-on-core: 
+16:45:30 core1=100% load=6.13 10.32 9.58 others-on-core: 
+16:46:01 core1=100% load=21.09 13.33 10.60 others-on-core: cosmic-term(7.7) ember(34.0) 
+16:46:31 core1=100% load=30.57 16.24 11.64 others-on-core: claude(1.8) 
+16:47:01 core1=100% load=32.56 18.13 12.42 others-on-core: claude(1.8) ember(41.9) ps(100) 
+16:47:31 core1=100% load=25.99 18.01 12.57 others-on-core: 
+16:48:01 core1=100% load=17.16 16.64 12.29 others-on-core: 

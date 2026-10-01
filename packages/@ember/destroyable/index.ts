@@ -128,7 +128,7 @@ import {
   There won't be any in between states where some items are marked as `isDestroying` while
   destroying, while others are not.
 
-  PREVIEW MARKER TWO: this sentence exists only in the test PR.
+  PREVIEW MARKER THREE: this sentence exists only in the test PR.
 
   @method destroy
   @for @ember/destroyable

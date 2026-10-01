@@ -128,6 +128,8 @@ import {
   There won't be any in between states where some items are marked as `isDestroying` while
   destroying, while others are not.
 
+  PREVIEW MARKER ONE: this sentence exists only in the test PR.
+
   @method destroy
   @for @ember/destroyable
   @param {Object|Function} destroyable the object to destroy

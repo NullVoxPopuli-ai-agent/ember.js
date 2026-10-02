@@ -13,3 +13,4 @@ pr21650-gc 21650 c59a238d61 c59a238d61 gc-variant
 rmain-gc - f693f240ee f693f240ee gc-variant
 pr21650b-gc 21650 0ea79971cf 0ea79971cf gc-variant
 pr21650c-gc 21650 c5544a2699 c5544a2699 gc-variant
+pr21650d-gc 21650 3e5f2d89a0 3e5f2d89a0 gc-variant, control pr21650c-gc

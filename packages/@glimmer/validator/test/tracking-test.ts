@@ -40,6 +40,36 @@ module('@glimmer/validator: tracking', () => {
       assert.notOk(validateTag(combined, snapshot));
     });
 
+    test('it returns the previous tag if the block consumed the same tags', (assert) => {
+      let tag1 = createTag();
+      let tag2 = createTag();
+      let tag3 = createTag();
+      let useThird = false;
+
+      let block = () => {
+        consumeTag(tag1);
+        consumeTag(useThird ? tag3 : tag2);
+      };
+
+      let first = track(block);
+      let second = track(block, false, first);
+
+      assert.strictEqual(second, first);
+
+      useThird = true;
+
+      let third = track(block, false, second);
+
+      assert.notStrictEqual(third, second);
+
+      let snapshot = valueForTag(third);
+      dirtyTag(tag2);
+      assert.ok(validateTag(third, snapshot));
+
+      dirtyTag(tag3);
+      assert.notOk(validateTag(third, snapshot));
+    });
+
     test('it ignores tags consumed within an untrack frame', (assert) => {
       let tag1 = createTag();
       let tag2 = createTag();

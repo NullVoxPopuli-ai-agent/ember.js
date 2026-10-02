@@ -317,7 +317,7 @@ function assertTag(tag: Tag | undefined, cache: InternalCache): asserts tag is T
 // refactors are merged, and we should generally be moving away from it. It may
 // be necessary in Ember for a while longer, but I think we'll be able to drop
 // it in favor of cache sooner rather than later.
-export function track(block: () => void, debugLabel?: string | false): Tag {
+export function track(block: () => void, debugLabel?: string | false, previous?: Tag): Tag {
   beginTrackFrame(debugLabel);
 
   let tag;
@@ -325,7 +325,7 @@ export function track(block: () => void, debugLabel?: string | false): Tag {
   try {
     block();
   } finally {
-    tag = endTrackFrame();
+    tag = endTrackFrame(previous);
   }
 
   return tag;

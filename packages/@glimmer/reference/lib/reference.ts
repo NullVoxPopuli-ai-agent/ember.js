@@ -165,10 +165,14 @@ export function valueForRef<T>(_ref: Reference<T>): T {
   if (tag === null || !validateTag(tag, lastRevision)) {
     const { compute } = ref;
 
-    const newTag = track(() => {
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- @fixme
-      lastValue = ref.lastValue = compute!();
-    }, DEBUG && ref.debugLabel);
+    const newTag = track(
+      () => {
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- @fixme
+        lastValue = ref.lastValue = compute!();
+      },
+      DEBUG && ref.debugLabel,
+      tag ?? undefined
+    );
 
     tag = ref.tag = newTag;
 

@@ -449,7 +449,7 @@ export default class CurlyComponentManager
     if (args !== null && !validateTag(argsTag, argsRevision)) {
       beginTrackFrame();
       let props = processComponentArgs(args);
-      argsTag = bucket.argsTag = endTrackFrame();
+      argsTag = bucket.argsTag = endTrackFrame(argsTag);
 
       bucket.argsRevision = valueForTag(argsTag);
 

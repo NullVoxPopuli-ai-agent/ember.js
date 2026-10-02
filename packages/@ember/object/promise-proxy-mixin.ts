@@ -5,14 +5,13 @@ import Mixin from '@ember/object/mixin';
 import { INTERNAL_MIXIN_CREATE } from '@ember/-internals/utils/lib/internal-mixin-create';
 import { DEPRECATIONS, deprecateUntil } from '@ember/-internals/deprecations';
 import type { AnyFn, MethodNamesOf } from '@ember/-internals/utility-types';
-import type RSVP from 'rsvp';
 import type CoreObject from '@ember/object/core';
 
 /**
   @module @ember/object/promise-proxy-mixin
 */
 
-function tap<T>(proxy: PromiseProxyMixin<T>, promise: RSVP.Promise<T>) {
+function tap<T>(proxy: PromiseProxyMixin<T>, promise: Promise<T>) {
   setProperties(proxy, {
     isFulfilled: false,
     isRejected: false,

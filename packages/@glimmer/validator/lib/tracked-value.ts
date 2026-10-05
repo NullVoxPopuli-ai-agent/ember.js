@@ -42,10 +42,15 @@ export class TrackedValue<Value = unknown> implements Reactive<Value> {
   #update: ((updater: (value: Value) => Value) => void) | undefined;
   #freeze: (() => void) | undefined;
 
-  constructor(value: Value, options: ReactiveOptions<Value>) {
+  /**
+   * The `@tracked` decorator passes the tag that the tag registry has for
+   * the field, so that `tagFor` and `dirtyTagFor` work on the tag of the
+   * value.
+   */
+  constructor(value: Value, options: ReactiveOptions<Value>, tag?: UpdatableTag) {
     this.#value = value;
     this.#options = options;
-    this.#tag = createUpdatableTag();
+    this.#tag = tag === undefined ? createUpdatableTag() : tag;
   }
 
   /**

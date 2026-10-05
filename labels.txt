@@ -19,3 +19,4 @@ ex-cell-gc    nvp/tracked-cell 4427f536f3 (one cell per tracked field), control 
 ex-list-gc    nvp/list-in-place 8f260ada80 (same code as 4ef4edaccd without its comments and tests), control rmain-gc, THROTTLE=4 under a 3 GHz host limit
 ex-self-gc    nvp/tracked-self-tag-on-cell 5b0b89c8a6 (cell + SELF_TAG through the cell), control rmain-gc, THROTTLE=4 under a 3 GHz host limit
 ex-list2-gc   nvp/list-in-place 2f64bf68dd (list in place with the cursor and the length check), control rmain-gc, THROTTLE=4 under a 3 GHz host limit
+ex-guardsalone-gc   nvp/block-guards-alone d7a316d71e (block guards on main, without PR 21650), control rmain-gc, THROTTLE=4 under a 3 GHz host limit

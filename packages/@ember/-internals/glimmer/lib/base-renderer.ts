@@ -25,7 +25,7 @@ import { RuntimeOpImpl } from '@glimmer/program/lib/opcode';
 import { clientBuilder } from '@glimmer/runtime/lib/vm/element-builder';
 import { inTransaction, runtimeOptions } from '@glimmer/runtime/lib/environment';
 import { renderComponent as glimmerRenderComponent } from '@glimmer/runtime/lib/render';
-import { currentRevision } from '@glimmer/signals/lib/tags';
+import { writeCount } from '@glimmer/signals/lib/tags';
 import type { SimpleDocument, SimpleElement } from '@simple-dom/interface';
 import { hasDOM } from '../../browser-environment';
 import { EmberEnvironmentDelegate } from './environment';
@@ -311,7 +311,7 @@ export class RendererState {
       completedWithoutError = true;
     } finally {
       if (!completedWithoutError) {
-        this.#lastRevision = currentRevision();
+        this.#lastRevision = writeCount();
       }
       this.#inRenderTransaction = false;
     }
@@ -350,7 +350,7 @@ export class RendererState {
           root.render();
         }
 
-        this.#lastRevision = currentRevision();
+        this.#lastRevision = writeCount();
       });
     } while (roots.length > initialRootsLength);
 
@@ -372,7 +372,7 @@ export class RendererState {
   }
 
   isValid(): boolean {
-    return this.#destroyed || this.#roots.length === 0 || this.#lastRevision === currentRevision();
+    return this.#destroyed || this.#roots.length === 0 || this.#lastRevision === writeCount();
   }
 
   revalidate(renderer: BaseRenderer): void {

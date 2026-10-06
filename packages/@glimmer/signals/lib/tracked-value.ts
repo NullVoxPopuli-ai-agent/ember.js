@@ -1,9 +1,8 @@
-import type { UpdatableTag } from '@glimmer/interfaces';
+import type { Tag } from '@glimmer/interfaces';
 
 import type { ReactiveOptions } from './collections/types';
 
-import { consumeTag } from './tracking';
-import { createUpdatableTag, DIRTY_TAG } from './validators';
+import { consumeTag, createTag, dirtyTag } from './tags';
 
 /**
  * A mutable reactive value.
@@ -26,12 +25,12 @@ export class TrackedValue<Value = unknown> implements Reactive<Value> {
   #isFrozen = false;
   #value: Value;
   readonly #options: ReactiveOptions<Value>;
-  readonly #tag: UpdatableTag;
+  readonly #tag: Tag;
 
   constructor(value: Value, options: ReactiveOptions<Value>) {
     this.#value = value;
     this.#options = options;
-    this.#tag = createUpdatableTag();
+    this.#tag = createTag();
   }
 
   /**
@@ -79,7 +78,7 @@ export class TrackedValue<Value = unknown> implements Reactive<Value> {
 
     this.#value = value;
 
-    DIRTY_TAG(this.#tag);
+    dirtyTag(this.#tag);
 
     return true;
   };

@@ -1,14 +1,14 @@
 import { DEBUG } from '@glimmer/env';
 import type { Tag, TagNode } from '@glimmer/signals';
 import {
-  beginTrackFrame,
+  beginFrame,
   consumeTag,
   createCache,
   createFrame,
   createTag,
   debug,
   dirtyTag,
-  endTrackFrame,
+  endFrame,
   getValue,
   isConst,
   isFrameStale,
@@ -28,6 +28,19 @@ function watch(tag: Tag) {
   let frame = createFrame();
   watchTag(frame, tag);
   return frame;
+}
+
+const OPEN_FRAMES: TagNode[] = [];
+
+function beginTrackFrame() {
+  let frame = createFrame();
+  OPEN_FRAMES.push(frame);
+  beginFrame(frame);
+}
+
+function endTrackFrame() {
+  endFrame();
+  return OPEN_FRAMES.pop() as TagNode;
 }
 
 function isValid(frame: TagNode) {
@@ -279,10 +292,7 @@ module('@glimmer/signals: tracking', () => {
 
     if (DEBUG) {
       test('asserts if track frame was ended without one existing', (assert) => {
-        assert.throws(
-          () => endTrackFrame(),
-          /attempted to close a tracking frame, but one was not open/u
-        );
+        assert.throws(() => endTrackFrame(), /attempted to close a frame, but one was not open/u);
       });
     }
   });

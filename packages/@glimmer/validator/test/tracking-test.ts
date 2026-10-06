@@ -377,7 +377,10 @@ module('@glimmer/validator: tracking', () => {
     });
 
     test('it resets after a frame that began inside untrack frames', (assert) => {
-      // deeper than any other test goes, so these depths have no tracker yet
+      /**
+       * Deeper than any other test goes,
+       * so these depths have no tracker yet.
+       */
       for (let i = 0; i < 100; i++) {
         beginUntrackFrame();
       }

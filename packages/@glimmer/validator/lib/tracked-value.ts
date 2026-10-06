@@ -43,10 +43,16 @@ export class TrackedValue<Value = unknown> implements Reactive<Value> {
   #freeze: (() => void) | undefined;
 
   constructor(value: Value, options: ReactiveOptions<Value>) {
-    // All instances have one hidden class, and V8 records which kind of value
-    // `#value` held so far. The first value of another kind makes V8 throw
-    // away the optimized code that reads the field. The field starts as
-    // `undefined`, so a number here makes it general from the first instance.
+    /**
+     * All instances have one hidden class,
+     * and V8 records which kind of value `#value` held so far.
+     *
+     * The first value of another kind makes V8 throw away
+     * the optimized code that reads the field.
+     *
+     * The field starts as `undefined`,
+     * so a number here makes it general from the first instance.
+     */
     this.#value = 0 as Value;
     this.#value = value;
     this.#options = options;

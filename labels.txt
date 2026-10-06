@@ -23,3 +23,4 @@ ex-guardsalone-gc   nvp/block-guards-alone d7a316d71e (block guards on main, wit
 ex-tv-gc   nvp/tracked-field-on-tracked-value f04dc41a44 (PR 21650 + tracked field on TrackedValue) against PR 21650 + cell 4af65cfdbe, control ex-21650cell-gc, THROTTLE=4 under a 3 GHz host limit
 ex-tv2-gc   nvp/tracked-field-on-tracked-value f04dc41a44 (PR 21650 + tracked field on TrackedValue) against PR 21650 50eef0f8c1, control ex-21650-gc, THROTTLE=4 under a 3 GHz host limit
 ex-cell3-gc   nvp/tracked-cell fcfd26b0ea (one cell per tracked field, value field general from the first cell), control rmain-gc, THROTTLE=4 under a 3 GHz host limit
+ex-spike1-gc   nvp/spike-one-reactive-primitive 249ec6cef0 (no trackedData, accessor, item ref, outlet state, collections on the registry) against PR 21662 content f04dc41a44, control ex-tv-gc, THROTTLE=4 under a 3 GHz host limit

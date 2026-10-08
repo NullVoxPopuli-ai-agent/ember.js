@@ -26,3 +26,4 @@ ex-cell3-gc   nvp/tracked-cell fcfd26b0ea (one cell per tracked field, value fie
 ex-spike1-gc   nvp/spike-one-reactive-primitive 249ec6cef0 (no trackedData, accessor, item ref, outlet state, collections on the registry) against PR 21662 content f04dc41a44, control ex-tv-gc, THROTTLE=4 under a 3 GHz host limit
 ex-spike2-gc   nvp/spike-one-reactive-primitive f45c1cbde8 (rebased: PR 21662 commit + four spike commits) against main 9bec1cb2a8, control m1007-gc, THROTTLE=4 under a 3 GHz host limit
 ex-tv3-gc   nvp/tracked-field-on-tracked-value 9f82b544f7 (PR 21662 rebased, one commit) against main 9bec1cb2a8, control m1007-gc, THROTTLE=4 under a 3 GHz host limit
+ex-cell4-gc   nvp/tracked-cell e2e0b1b558 (PR 21661 merged with main) against main 9bec1cb2a8, control m1007-gc, THROTTLE=4 under a 3 GHz host limit

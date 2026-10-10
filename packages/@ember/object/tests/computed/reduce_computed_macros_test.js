@@ -9,8 +9,7 @@ import EmberObject, {
   observer,
 } from '@ember/object';
 import ObjectProxy from '@ember/object/proxy';
-import { isArray, removeAt } from '@ember/array';
-import { A as emberA } from '@ember/array/index-internal';
+import { A as emberA, isArray, removeAt } from '@ember/array';
 import {
   sum,
   min,
@@ -37,6 +36,7 @@ import {
 import { DEPRECATIONS } from '@ember/-internals/deprecations';
 
 const { isEnabled, isRemoved } = DEPRECATIONS.DEPRECATE_ARRAY_COMPUTED_MACROS;
+const EMBER_A_REMOVED = DEPRECATIONS.DEPRECATE_EMBER_ARRAY_A.isRemoved;
 
 class ArrayMacroTestCase extends AbstractTestCase {
   constructor(assert) {
@@ -44,13 +44,13 @@ class ArrayMacroTestCase extends AbstractTestCase {
 
     if (isEnabled) {
       expectDeprecation(
-        /from `@ember\/object\/computed` is deprecated. Use a getter with native array methods instead/
+        /from `@ember\/object\/computed` is deprecated. Use a getter with native array methods instead|`A` from `@ember\/array` is deprecated/
       );
     }
   }
 }
 
-if (!isRemoved) {
+if (!isRemoved && !EMBER_A_REMOVED) {
   let obj;
   moduleFor(
     'map',

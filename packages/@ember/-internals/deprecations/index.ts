@@ -217,6 +217,13 @@ export const DEPRECATIONS = {
     until: '8.0.0',
     url: 'https://deprecations.emberjs.com/id/deprecate-ember-array-a',
   }),
+  DEPRECATE_QUERY_PARAM_EMBER_ARRAY: deprecation({
+    id: 'deprecate-query-param-ember-array',
+    for: 'ember-source',
+    since: { available: '7.5.0' },
+    until: '8.0.0',
+    url: 'https://deprecations.emberjs.com/id/deprecate-query-param-ember-array',
+  }),
   DEPRECATE_ARRAY_COMPUTED_MACROS: deprecation({
     id: 'deprecate-array-computed-macros',
     for: 'ember-source',

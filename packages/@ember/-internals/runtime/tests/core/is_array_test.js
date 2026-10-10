@@ -1,5 +1,4 @@
 import { isArray } from '@ember/array';
-import { A as emberA } from '@ember/array/index-internal';
 import ArrayProxy from '@ember/array/proxy';
 import EmberObject from '@ember/object';
 import { window } from '@ember/-internals/browser-environment';
@@ -39,7 +38,7 @@ moduleFor(
     )} @test Ember.isArray with an ArrayProxy`](assert) {
       expectDeprecation(/`ArrayProxy` is deprecated/, DEPRECATIONS.DEPRECATE_ARRAY_PROXY.isEnabled);
 
-      let arrayProxy = ArrayProxy.create({ content: emberA() });
+      let arrayProxy = ArrayProxy.create({ content: [] });
 
       assert.equal(isArray(arrayProxy), true, 'ArrayProxy');
     }

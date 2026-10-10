@@ -9,7 +9,16 @@ import {
 import EmberObject, { get, set, computed, observer as emberObserver } from '@ember/object';
 import { A as emberA } from '@ember/array';
 import { InternalEmberArray as EmberArray } from '@ember/array/index-internal';
-import { moduleFor, AbstractTestCase, runLoopSettled } from 'internal-test-helpers';
+import {
+  moduleFor,
+  AbstractTestCase,
+  runLoopSettled,
+  expectDeprecation,
+  testUnless,
+} from 'internal-test-helpers';
+import { DEPRECATIONS } from '@ember/-internals/deprecations';
+
+const EMBER_A = DEPRECATIONS.DEPRECATE_EMBER_ARRAY_A;
 
 /*
   Implement a basic fake mutable array.  This validates that any non-native
@@ -340,9 +349,13 @@ moduleFor(
       assert.equal(objectAt(arr, 4), undefined);
     }
 
-    ['@test should be clear caches for computed properties that have dependent keys on arrays that are changed after object initialization'](
+    [`${testUnless(
+      EMBER_A.isRemoved
+    )} @test should be clear caches for computed properties that have dependent keys on arrays that are changed after object initialization`](
       assert
     ) {
+      expectDeprecation(/`A` from `@ember\/array` is deprecated/, EMBER_A.isEnabled);
+
       let obj = class extends EmberObject {
         init() {
           super.init(...arguments);
@@ -362,9 +375,13 @@ moduleFor(
       assert.equal('BYE!', get(obj, 'common'));
     }
 
-    async ['@test observers that contain @each in the path should fire only once the first time they are accessed'](
+    async [`${testUnless(
+      EMBER_A.isRemoved
+    )} @test observers that contain @each in the path should fire only once the first time they are accessed`](
       assert
     ) {
+      expectDeprecation(/`A` from `@ember\/array` is deprecated/, EMBER_A.isEnabled);
+
       let count = 0;
 
       let obj = EmberObject.extend({

@@ -1,6 +1,6 @@
 import { RenderingTestCase, moduleFor, strip, runTask } from 'internal-test-helpers';
 
-import { A as emberA } from '@ember/array';
+import { A as emberA } from '@ember/array/index-internal';
 import { set } from '@ember/object';
 import { precompileTemplate } from '@ember/template-compilation';
 import { setComponentTemplate } from '@glimmer/manager';

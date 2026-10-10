@@ -551,41 +551,6 @@ const InternalMutableArray = InternalMixin.create(InternalEmberArray, InternalMu
   },
 });
 
-/**
-  Creates an `NativeArray` from an Array-like object.
-  Does not modify the original object's contents.
-
-  This exists primarily for historic reasons and should not be used
-  in new code. Prefer native [Array](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array)
-  or [trackedArray](/ember/release/functions/@ember%2Freactive%2Fcollections/trackedArray).
-
-  Example
-
-  ```app/components/my-component.js
-  import Component from '@ember/component';
-  import { A } from '@ember/array';
-
-  export default Component.extend({
-    tagName: 'ul',
-    classNames: ['pagination'],
-
-    init() {
-      this._super(...arguments);
-
-      if (!this.get('content')) {
-        this.set('content', A());
-        this.set('otherContent', A([1,2,3]));
-      }
-    }
-  });
-  ```
-
-  @method A
-  @static
-  @for @ember/array
-  @return {Ember.NativeArray}
-*/
-
 // Add Ember.Array to Array.prototype. Remove methods with native
 // implementations and supply some more optimized versions of generic methods
 // because they are so common.

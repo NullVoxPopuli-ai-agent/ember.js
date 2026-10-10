@@ -1,5 +1,6 @@
 import ArrayProxy from '@ember/array/proxy';
-import EmberArray, { A as emberA } from '@ember/array';
+import EmberArray from '@ember/array';
+import { A as emberA } from '@ember/array/index-internal';
 import MutableArray from '@ember/array/mutable';
 import { generateGuid, guidFor } from '@ember/-internals/utils';
 import {

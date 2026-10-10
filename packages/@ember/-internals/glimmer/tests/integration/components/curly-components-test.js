@@ -20,7 +20,7 @@ import { alias } from '@ember/object/computed';
 import { on } from '@ember/object/evented';
 import Service, { service } from '@ember/service';
 import EmberObject, { set, get, computed, observer } from '@ember/object';
-import { A as emberA } from '@ember/array';
+import { A as emberA } from '@ember/array/index-internal';
 
 import { Component, htmlSafe } from '../../utils/helpers';
 import PositionalComponent from '../../utils/positional-component';

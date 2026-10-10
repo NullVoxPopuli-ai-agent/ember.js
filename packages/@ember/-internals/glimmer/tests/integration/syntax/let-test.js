@@ -9,7 +9,8 @@ import {
 import { DEPRECATIONS } from '@ember/-internals/deprecations';
 
 import { get, set } from '@ember/object';
-import { A as emberA, removeAt } from '@ember/array';
+import { removeAt } from '@ember/array';
+import { A as emberA } from '@ember/array/index-internal';
 import ObjectProxy from '@ember/object/proxy';
 
 moduleFor(

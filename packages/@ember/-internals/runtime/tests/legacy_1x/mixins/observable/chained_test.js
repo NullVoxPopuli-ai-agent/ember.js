@@ -1,6 +1,6 @@
 import { addObserver } from '@ember/-internals/metal';
 import EmberObject, { get, set } from '@ember/object';
-import { A as emberA } from '@ember/array';
+import { A as emberA } from '@ember/array/index-internal';
 import { moduleFor, AbstractTestCase, runLoopSettled } from 'internal-test-helpers';
 
 /*

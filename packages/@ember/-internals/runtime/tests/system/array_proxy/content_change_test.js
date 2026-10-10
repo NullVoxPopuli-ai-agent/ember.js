@@ -2,7 +2,7 @@ import { run } from '@ember/runloop';
 import { changeProperties } from '@ember/-internals/metal';
 import { set } from '@ember/object';
 import ArrayProxy from '@ember/array/proxy';
-import { A as emberA } from '@ember/array';
+import { A as emberA } from '@ember/array/index-internal';
 import { moduleFor, AbstractTestCase, expectDeprecation, testUnless } from 'internal-test-helpers';
 import { DEPRECATIONS } from '@ember/-internals/deprecations';
 

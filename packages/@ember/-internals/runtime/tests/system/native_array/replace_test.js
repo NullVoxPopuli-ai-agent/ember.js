@@ -1,4 +1,4 @@
-import { A } from '@ember/array';
+import { A } from '@ember/array/index-internal';
 import { moduleFor, AbstractTestCase } from 'internal-test-helpers';
 
 moduleFor(

@@ -6,7 +6,7 @@
   functions below.
 */
 
-import { A as emberA } from '@ember/array';
+import { A as emberA } from '@ember/array/index-internal';
 import { assert } from '@ember/debug';
 import { flushAsyncObservers } from '@ember/-internals/metal/lib/observer';
 import { get } from '@ember/-internals/metal/lib/property_get';

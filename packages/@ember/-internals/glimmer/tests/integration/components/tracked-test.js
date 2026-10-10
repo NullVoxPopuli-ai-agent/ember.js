@@ -1,5 +1,5 @@
 import EmberObject from '@ember/object';
-import { A } from '@ember/array';
+import { A } from '@ember/array/index-internal';
 import ArrayProxy from '@ember/array/proxy';
 import PromiseProxyMixin from '@ember/object/promise-proxy-mixin';
 import { tracked } from '@ember/-internals/metal';

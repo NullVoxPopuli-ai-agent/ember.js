@@ -1,4 +1,5 @@
-import { A as emberA, isArray } from '@ember/array';
+import { isArray } from '@ember/array';
+import { A as emberA } from '@ember/array/index-internal';
 import ArrayProxy from '@ember/array/proxy';
 import EmberObject from '@ember/object';
 import { window } from '@ember/-internals/browser-environment';

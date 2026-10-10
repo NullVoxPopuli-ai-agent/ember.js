@@ -1,5 +1,5 @@
 import EmberObject from '@ember/object';
-import { A } from '@ember/array';
+import { A } from '@ember/array/index-internal';
 import { tracked, notifyPropertyChange } from '@ember/-internals/metal';
 import { InternalMutableArray as MutableArray } from '@ember/array/index-internal';
 import Service, { service } from '@ember/service';

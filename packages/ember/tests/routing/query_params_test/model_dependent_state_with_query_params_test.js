@@ -1,5 +1,5 @@
 import Controller from '@ember/controller';
-import { A as emberA } from '@ember/array';
+import { A as emberA } from '@ember/array/index-internal';
 import Route from '@ember/routing/route';
 import { computed } from '@ember/object';
 import { precompileTemplate } from '@ember/template-compilation';

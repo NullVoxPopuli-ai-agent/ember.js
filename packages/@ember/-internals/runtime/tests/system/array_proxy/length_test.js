@@ -1,7 +1,7 @@
 import ArrayProxy from '@ember/array/proxy';
 import EmberObject, { observer } from '@ember/object';
 import { oneWay as reads, not } from '@ember/object/computed';
-import { A as a } from '@ember/array';
+import { A as a } from '@ember/array/index-internal';
 import {
   moduleFor,
   AbstractTestCase,

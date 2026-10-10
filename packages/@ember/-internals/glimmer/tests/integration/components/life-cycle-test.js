@@ -2,7 +2,7 @@ import { classes, moduleFor, RenderingTestCase, runTask, strip } from 'internal-
 
 import { schedule } from '@ember/runloop';
 import { set, setProperties } from '@ember/object';
-import { A as emberA } from '@ember/array';
+import { A as emberA } from '@ember/array/index-internal';
 import { getViewElement, getViewId } from '@ember/-internals/views';
 import { precompileTemplate } from '@ember/template-compilation';
 import { setComponentTemplate } from '@glimmer/manager';

@@ -1,6 +1,7 @@
 import { notifyPropertyChange } from '@ember/-internals/metal';
 import { alias, oneWay as reads } from '@ember/object/computed';
-import { A as emberA, isArray } from '@ember/array';
+import { isArray } from '@ember/array';
+import { A as emberA } from '@ember/array/index-internal';
 import EmberObject, { defineProperty, get, set, computed, observer } from '@ember/object';
 import { moduleFor, AbstractTestCase } from 'internal-test-helpers';
 

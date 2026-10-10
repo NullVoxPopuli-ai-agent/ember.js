@@ -2,7 +2,7 @@ import { context } from '@ember/-internals/environment';
 import { run } from '@ember/runloop';
 import { get, computed } from '@ember/object';
 import EmberObject, { observer } from '@ember/object';
-import { A as emberA } from '@ember/array';
+import { A as emberA } from '@ember/array/index-internal';
 import { moduleFor, AbstractTestCase, runLoopSettled } from 'internal-test-helpers';
 
 /*

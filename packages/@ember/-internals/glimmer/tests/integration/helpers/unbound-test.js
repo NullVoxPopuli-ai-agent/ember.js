@@ -7,7 +7,7 @@ import {
 } from 'internal-test-helpers';
 
 import { set, get, setProperties } from '@ember/object';
-import { A as emberA } from '@ember/array';
+import { A as emberA } from '@ember/array/index-internal';
 import { precompileTemplate } from '@ember/template-compilation';
 import { setComponentTemplate } from '@glimmer/manager';
 

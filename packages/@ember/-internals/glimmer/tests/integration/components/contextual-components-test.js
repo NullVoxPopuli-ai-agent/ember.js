@@ -2,7 +2,7 @@ import { DEBUG } from '@glimmer/env';
 import { moduleFor, RenderingTestCase, applyMixins, strip, runTask } from 'internal-test-helpers';
 
 import { action } from '@ember/object';
-import { A as emberA } from '@ember/array';
+import { A as emberA } from '@ember/array/index-internal';
 
 import Component from '@glimmer/component';
 import { tracked } from '@glimmer/tracking';

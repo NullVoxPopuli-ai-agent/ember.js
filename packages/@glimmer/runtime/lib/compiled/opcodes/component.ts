@@ -402,14 +402,6 @@ APPEND_OPCODES.add(VM_CREATE_COMPONENT_OP, (vm, { op1: flags }) => {
   let instance = check(vm.fetchValue($s0), CheckComponentInstance);
   let { definition, manager, capabilities } = instance;
 
-  // RFC #1154 -- push this component's render-tree scope before the user-land
-  // constructor runs, so that provide/consume (createContext) inside the
-  // constructor see the new scope (and its parent chain). Always-on. Mirroring
-  // debugRenderTree would be too late: the user constructor runs in
-  // manager.create() below.
-  vm.env.renderScope.create(instance);
-  vm.updateWith(new RenderScopeUpdateOpcode(instance));
-
   if (!managerHasCapability(manager, capabilities, InternalComponentCapabilities.createInstance)) {
     // TODO: Closure and Main components are always invoked dynamically, so this
     // opcode may run even if this capability is not enabled. In the future we
@@ -450,6 +442,10 @@ APPEND_OPCODES.add(VM_CREATE_COMPONENT_OP, (vm, { op1: flags }) => {
 
   if (managerHasCapability(manager, capabilities, InternalComponentCapabilities.updateHook)) {
     vm.updateWith(new UpdateComponentOpcode(state, manager, dynamicScope));
+  }
+
+  if (dynamicScope !== null) {
+    vm.updateWith(new EnterDynamicScopeOpcode(dynamicScope));
   }
 });
 
@@ -913,12 +909,6 @@ APPEND_OPCODES.add(VM_DID_RENDER_LAYOUT_OP, (vm, { op1: register }) => {
   let { manager, state, capabilities } = instance;
   let bounds = vm.tree().popBlock();
 
-  // RFC #1154 -- pop the render scope stack to match the create() done in
-  // VM_CREATE_COMPONENT_OP. This must happen unconditionally and outside
-  // the debugRenderTree branch below.
-  vm.env.renderScope.exit();
-  vm.updateWith(new RenderScopeExitOpcode());
-
   if (vm.env.debugRenderTree !== undefined) {
     if (hasCustomDebugRenderTreeLifecycle(manager)) {
       let nodes = manager.getDebugCustomRenderTree(instance.definition.state, state, EMPTY_ARGS);
@@ -945,6 +935,10 @@ APPEND_OPCODES.add(VM_DID_RENDER_LAYOUT_OP, (vm, { op1: register }) => {
 
     vm.env.didCreate(instance as ComponentInstanceWithCreate);
     vm.updateWith(new DidUpdateLayoutOpcode(instance as ComponentInstanceWithCreate, bounds));
+
+    if (managerHasCapability(manager, capabilities, InternalComponentCapabilities.dynamicScope)) {
+      vm.updateWith(EXIT_DYNAMIC_SCOPE);
+    }
   }
 });
 
@@ -965,6 +959,28 @@ export class UpdateComponentOpcode implements UpdatingOpcode {
     manager.update(component, dynamicScope);
   }
 }
+
+/**
+ * Gives the updating VM the dynamic scope of a component that has one.
+ *
+ * A value that recomputes in an update, for example a getter,
+ * reads the same dynamic scope as in the first render.
+ */
+class EnterDynamicScopeOpcode implements UpdatingOpcode {
+  constructor(private scope: DynamicScope) {}
+
+  evaluate(vm: UpdatingVM) {
+    vm.enterDynamicScope(this.scope);
+  }
+}
+
+class ExitDynamicScopeOpcode implements UpdatingOpcode {
+  evaluate(vm: UpdatingVM) {
+    vm.exitDynamicScope();
+  }
+}
+
+const EXIT_DYNAMIC_SCOPE = new ExitDynamicScopeOpcode();
 
 export class DidUpdateLayoutOpcode implements UpdatingOpcode {
   constructor(
@@ -998,23 +1014,5 @@ class DebugRenderTreeDidRenderOpcode implements UpdatingOpcode {
 
   evaluate(vm: UpdatingVM) {
     vm.env.debugRenderTree?.didRender(this.bucket, this.bounds);
-  }
-}
-
-// RFC #1154 -- render-tree scope lifecycle during updating frames. We have to
-// push the render node back onto the scope stack at the start of its update
-// and pop it back off at the end, so that any descendants which read a
-// context `value` during their own update see the correct parent chain.
-class RenderScopeUpdateOpcode implements UpdatingOpcode {
-  constructor(private bucket: object) {}
-
-  evaluate(vm: UpdatingVM) {
-    vm.env.renderScope.enter(this.bucket);
-  }
-}
-
-class RenderScopeExitOpcode implements UpdatingOpcode {
-  evaluate(vm: UpdatingVM) {
-    vm.env.renderScope.exit();
   }
 }
